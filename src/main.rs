@@ -9,22 +9,40 @@ use std::{
 };
 use tui::{
     backend::{Backend, CrosstermBackend},
+    layout::{Constraint, Layout},
     style::{Color, Modifier, Style},
     text::{Span, Spans},
-    widgets::Borders,
-    widgets::{Block, Tabs},
+    widgets::{Block, Row, Table, TableState, Tabs},
+    widgets::{Borders, Cell},
     Frame, Terminal,
 };
 
 struct App<'a> {
     pub titles: Vec<&'a str>,
+    pub dashboard_headers: Vec<&'a str>,
+    pub dashboard_table_state: TableState,
     pub index: usize,
 }
 
 impl<'a> App<'a> {
     fn new() -> App<'a> {
         App {
-            titles: vec!["Dashboard", "Streams"],
+            titles: vec![
+                "Dashboard",
+                "Streams Browser",
+                "Projections",
+                "Query",
+                "Persistent Subscriptions",
+            ],
+            dashboard_headers: vec![
+                "Queue Name",
+                "Length",
+                "Rate (items/s)",
+                "Time (ms/item)",
+                "Items Processed",
+                "Current / Last Message",
+            ],
+            dashboard_table_state: TableState::default(),
             index: 0,
         }
     }
@@ -75,7 +93,7 @@ fn run_app<B: Backend>(
     let mut last_tick = Instant::now();
 
     loop {
-        terminal.draw(|f| ui(f, &app))?;
+        terminal.draw(|f| ui(f, &mut app))?;
 
         let timeout = tick_rate
             .checked_sub(last_tick.elapsed())
@@ -98,12 +116,8 @@ fn run_app<B: Backend>(
     }
 }
 
-fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
+fn ui<B: Backend>(f: &mut Frame<B>, app: &mut App) {
     let size = f.size();
-    // let block = Block::default()
-    //     .title("EventStoreDB Administration Tool")
-    //     .borders(Borders::ALL);
-    // f.render_widget(block, size);
 
     let titles = app
         .titles
@@ -115,15 +129,63 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title("EventStoreDB Administration Tool"),
+                .title("EventStoreDB Administration Tool")
+                .title_alignment(tui::layout::Alignment::Right),
         )
         .select(app.index)
-        .style(Style::default().fg(Color::Cyan))
+        .style(Style::default().fg(Color::Black))
         .highlight_style(
             Style::default()
                 .add_modifier(Modifier::BOLD)
-                .bg(Color::Black),
+                .bg(Color::White),
         );
 
     f.render_widget(tabs, size);
+
+    match app.index {
+        0 => ui_dashboard(f, app),
+        _ => {}
+    }
+}
+
+fn ui_dashboard<B: Backend>(f: &mut Frame<B>, app: &mut App) {
+    let rects = Layout::default()
+        .constraints([Constraint::Percentage(90)].as_ref())
+        .margin(3)
+        .split(f.size());
+
+    let selected_style = Style::default().add_modifier(Modifier::REVERSED);
+    let normal_style = Style::default().add_modifier(Modifier::REVERSED);
+    let header_cells = app
+        .dashboard_headers
+        .iter()
+        .map(|h| Cell::from(*h).style(Style::default().fg(Color::Red)));
+
+    let rows: Vec<Row> = Vec::new();
+
+    let header = Row::new(header_cells)
+        .style(normal_style)
+        .height(1)
+        .bottom_margin(1);
+
+    let table = Table::new(rows)
+        .header(header)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Dashboard")
+                .title_alignment(tui::layout::Alignment::Right),
+        )
+        .highlight_style(selected_style)
+        .highlight_symbol(">> ")
+        .widths(&[
+            Constraint::Percentage(20),
+            Constraint::Percentage(10),
+            Constraint::Percentage(10),
+            Constraint::Percentage(10),
+            Constraint::Percentage(10),
+            Constraint::Percentage(40),
+        ]);
+
+    f.render_stateful_widget(table, rects[0], &mut app.dashboard_table_state)
 }
