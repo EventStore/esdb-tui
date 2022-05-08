@@ -7,6 +7,7 @@ use std::{
     io,
     time::{Duration, Instant},
 };
+use structopt::StructOpt;
 use tui::{
     backend::{Backend, CrosstermBackend},
     layout::{Constraint, Layout},
@@ -16,6 +17,18 @@ use tui::{
     widgets::{Borders, Cell},
     Frame, Terminal,
 };
+
+#[derive(StructOpt, Debug)]
+struct Args {
+    #[structopt(short = "c",  long = "connection-string", default_value = "esdb://localhost:2113", parse(try_from_str = parse_connection_string))]
+    conn_setts: eventstore::ClientSettings,
+}
+
+fn parse_connection_string(
+    input: &str,
+) -> std::result::Result<eventstore::ClientSettings, eventstore::ClientSettingsParseError> {
+    eventstore::ClientSettings::parse_str(input)
+}
 
 struct App<'a> {
     pub titles: Vec<&'a str>,
@@ -61,6 +74,9 @@ impl<'a> App<'a> {
 }
 
 fn main() -> Result<(), io::Error> {
+    let args = Args::from_args();
+    let op_client = eventstore::operations::Client::new(args.conn_setts.clone());
+    let client = eventstore::Client::new(args.conn_setts).unwrap();
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
