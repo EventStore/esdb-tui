@@ -1,18 +1,24 @@
+#[macro_use]
+use log;
+
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use eventstore::{ClientSettings, StreamPosition};
-use futures::{SinkExt, StreamExt};
-use std::collections::HashMap;
-use std::thread::JoinHandle;
+use futures::channel::mpsc::UnboundedSender;
+use futures::{channel::mpsc::UnboundedReceiver, SinkExt, StreamExt};
+use itertools::Itertools;
+use log::{debug, error, LevelFilter};
+use log4rs::config::{Appender, Logger, Root};
+use std::{collections::HashMap, sync::Arc};
 use std::{
     io,
     time::{Duration, Instant},
 };
 use structopt::StructOpt;
-use tokio::runtime::Runtime;
+use tokio::{runtime::Runtime, sync::RwLock};
 use tui::{
     backend::{Backend, CrosstermBackend},
     layout::{Constraint, Layout},
@@ -54,7 +60,7 @@ impl<'a> App<'a> {
             ],
             dashboard_headers: vec![
                 "Queue Name",
-                "Length",
+                "Length (Current | Peak)",
                 "Rate (items/s)",
                 "Time (ms/item)",
                 "Items Processed",
@@ -83,25 +89,32 @@ fn main() -> Result<(), io::Error> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
+
+    let file = log4rs::append::file::FileAppender::builder().build("esdb.log")?;
+    let config = log4rs::config::Config::builder()
+        .appender(Appender::builder().build("file", Box::new(file)))
+        .logger(Logger::builder().build("esdb", LevelFilter::Debug))
+        .build(Root::builder().appender("file").build(LevelFilter::Error))
+        .unwrap();
+
+    let _ = log4rs::init_config(config).unwrap();
+
     let (sender, recv) = futures::channel::mpsc::unbounded();
-    let _ = runtime.spawn(ticking_loop(sender.clone()));
-    let _handle = runtime.spawn(main_esdb_loop(args.conn_setts, recv));
+    let state = Arc::new(RwLock::new(State::default()));
+    // let _ = runtime.spawn(ticking_loop(sender.clone()));
+    let _handle = runtime.spawn(main_esdb_loop(args.conn_setts, state.clone()));
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
     let tick_rate = Duration::from_millis(250);
     let app = App::new();
-    let res = run_app(&runtime, &sender, &mut terminal, app, tick_rate);
+    let res = run_app(&runtime, state, &sender, &mut terminal, app, tick_rate);
 
     disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture,
-    )?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen,)?;
     terminal.show_cursor()?;
 
     if let Err(err) = res {
@@ -113,7 +126,8 @@ fn main() -> Result<(), io::Error> {
 
 fn run_app<B: Backend>(
     runtime: &Runtime,
-    bus: &futures::channel::mpsc::UnboundedSender<Msg>,
+    state: Arc<RwLock<State>>,
+    bus: &UnboundedSender<Msg>,
     terminal: &mut Terminal<B>,
     mut app: App,
     tick_rate: Duration,
@@ -121,7 +135,7 @@ fn run_app<B: Backend>(
     let mut last_tick = Instant::now();
 
     loop {
-        terminal.draw(|f| ui(runtime, bus, f, &mut app))?;
+        terminal.draw(|f| ui(runtime, state.clone(), bus, f, &mut app))?;
 
         let timeout = tick_rate
             .checked_sub(last_tick.elapsed())
@@ -146,7 +160,8 @@ fn run_app<B: Backend>(
 
 fn ui<B: Backend>(
     runtime: &Runtime,
-    bus: &futures::channel::mpsc::UnboundedSender<Msg>,
+    state: Arc<RwLock<State>>,
+    bus: &UnboundedSender<Msg>,
     f: &mut Frame<B>,
     app: &mut App,
 ) {
@@ -178,14 +193,14 @@ fn ui<B: Backend>(
     f.render_widget(tabs, size);
 
     match app.index {
-        0 => ui_dashboard(runtime, bus, f, app),
+        0 => ui_dashboard(runtime, state, f, app),
         _ => {}
     }
 }
 
 fn ui_dashboard<B: Backend>(
     runtime: &Runtime,
-    bus: &futures::channel::mpsc::UnboundedSender<Msg>,
+    state: Arc<RwLock<State>>,
     f: &mut Frame<B>,
     app: &mut App,
 ) {
@@ -201,28 +216,26 @@ fn ui_dashboard<B: Backend>(
         .iter()
         .map(|h| Cell::from(*h).style(Style::default().fg(Color::Green)));
 
-    let state = ask_snapshot(runtime, bus.clone());
+    let stats = ask_stats(runtime, state);
     let mut rows: Vec<Row> = Vec::new();
 
-    for (name, queue) in state.stats.queues.iter() {
-        if !name.starts_with("Storage") && !name.starts_with("Projection") {
-            let mut cells = Vec::new();
+    for (name, queue) in stats.queues.iter().sorted_by(|(a, _), (b, _)| a.cmp(b)) {
+        let mut cells = Vec::new();
 
-            cells.push(Cell::from(queue.queue_name.as_str()));
-            cells.push(Cell::from(format!(
-                "{} - {}",
-                queue.length_current_try_peak, queue.length_lifetime_peak
-            )));
-            cells.push(Cell::from(queue.avg_items_per_second.as_str()));
-            cells.push(Cell::from(queue.current_idle_time.as_str()));
-            cells.push(Cell::from(queue.total_items_processed.as_str()));
-            cells.push(Cell::from(format!(
-                "{} / {}",
-                queue.in_progress_message, queue.last_processed_message
-            )));
+        cells.push(Cell::from(queue.queue_name.as_str()));
+        cells.push(Cell::from(format!(
+            "{} | {}",
+            queue.length_current_try_peak, queue.length_lifetime_peak
+        )));
+        cells.push(Cell::from(queue.avg_items_per_second.as_str()));
+        cells.push(Cell::from(queue.current_idle_time.as_str()));
+        cells.push(Cell::from(queue.total_items_processed.as_str()));
+        cells.push(Cell::from(format!(
+            "{} / {}",
+            queue.in_progress_message, queue.last_processed_message
+        )));
 
-            rows.push(Row::new(cells));
-        }
+        rows.push(Row::new(cells));
     }
 
     let header = Row::new(header_cells)
@@ -241,8 +254,8 @@ fn ui_dashboard<B: Backend>(
         .highlight_style(selected_style)
         .highlight_symbol(">> ")
         .widths(&[
-            Constraint::Percentage(20),
-            Constraint::Percentage(10),
+            Constraint::Percentage(15),
+            Constraint::Percentage(15),
             Constraint::Percentage(10),
             Constraint::Percentage(10),
             Constraint::Percentage(10),
@@ -254,7 +267,6 @@ fn ui_dashboard<B: Backend>(
 
 enum Msg {
     Tick,
-    Snapshot(futures::channel::oneshot::Sender<State>),
 }
 
 #[derive(Default, Clone, Debug)]
@@ -285,6 +297,10 @@ struct Stats {
 
 impl Stats {
     fn from(map: HashMap<String, String>) -> Self {
+        if map.is_empty() {
+            error!("Stats from the server are empty");
+        }
+
         let mut queues = HashMap::<String, Queue>::new();
 
         for (key, value) in map {
@@ -303,6 +319,7 @@ impl Stats {
                     "groupName" => queue.group_name = value,
                     "lengthLifetimePeak" => queue.length_lifetime_peak = value,
                     "inProgressMessage" => queue.in_progress_message = value,
+                    "lastProcessedMessage" => queue.last_processed_message = value,
                     _ => {}
                 }
             }
@@ -316,8 +333,10 @@ async fn ticking_loop(mut sender: futures::channel::mpsc::UnboundedSender<Msg>) 
     let mut interval = tokio::time::interval(Duration::from_secs(2));
     loop {
         interval.tick().await;
+        debug!("ticking...");
 
         if let Err(_) = sender.send(Msg::Tick).await {
+            error!("Main bus is no longer able to receive MSG anymore. WTF!?");
             break;
         }
     }
@@ -325,44 +344,43 @@ async fn ticking_loop(mut sender: futures::channel::mpsc::UnboundedSender<Msg>) 
 
 async fn main_esdb_loop(
     setts: ClientSettings,
-    mut stream: futures::channel::mpsc::UnboundedReceiver<Msg>,
+    state_ref: Arc<RwLock<State>>,
 ) -> eventstore::Result<()> {
+    let mut time = tokio::time::interval(Duration::from_secs(2));
     let client = eventstore::Client::new(setts.clone())?;
     let op_client = eventstore::operations::Client::new(setts);
-    let mut state = State::default();
-    let mut stats = op_client
-        .stats(Duration::from_secs(1), true, &Default::default())
-        .await?;
+    let stats_options = eventstore::operations::StatsOptions::default()
+        .refresh_time(Duration::from_secs(1))
+        .use_metadata(true);
+
+    let mut stats = op_client.stats(&stats_options).await?;
 
     let last_created_streams_options = eventstore::ReadStreamOptions::default()
         .max_count(20)
         .position(StreamPosition::End)
         .backwards();
 
-    while let Some(msg) = stream.next().await {
-        match msg {
-            Msg::Snapshot(result) => {
-                let _ = result.send(state.clone());
-            }
-            Msg::Tick => {
-                state.stats = Stats::from(stats.next().await?.unwrap_or_default());
-                let mut stream_names = client
-                    .read_stream("$streams", &last_created_streams_options)
-                    .await?;
+    loop {
+        time.tick().await;
 
-                let mut streams = Vec::with_capacity(20);
-                while let Some(event) = read_stream_next(&mut stream_names).await? {
-                    let stream_name = std::str::from_utf8(event.get_original_event().data.as_ref())
-                        .expect("UTF-8 formatted text")
-                        .split('@')
-                        .collect::<Vec<&str>>()[0];
+        let mut state = state_ref.write().await;
+        state.stats = Stats::from(stats.next().await?.unwrap_or_default());
+        let mut stream_names = client
+            .read_stream("$streams", &last_created_streams_options)
+            .await?;
 
-                    streams.push(stream_name.to_string());
-                }
-            }
+        let mut streams = Vec::with_capacity(20);
+        while let Some(event) = read_stream_next(&mut stream_names).await? {
+            let stream_name = std::str::from_utf8(event.get_original_event().data.as_ref())
+                .expect("UTF-8 formatted text")
+                .split('@')
+                .collect::<Vec<&str>>()[0];
+
+            streams.push(stream_name.to_string());
         }
     }
 
+    error!("Stream of MSG went empty, WTF!?");
     Ok(())
 }
 
@@ -381,11 +399,11 @@ async fn read_stream_next(
     }
 }
 
-fn ask_snapshot(runtime: &Runtime, bus: futures::channel::mpsc::UnboundedSender<Msg>) -> State {
-    let (sender, recv) = futures::channel::oneshot::channel();
-    send_msg(runtime, bus, Msg::Snapshot(sender));
-
-    runtime.block_on(recv).unwrap()
+fn ask_stats(runtime: &Runtime, state_ref: Arc<RwLock<State>>) -> Stats {
+    runtime.block_on(async move {
+        let state = state_ref.read().await;
+        state.stats.clone()
+    })
 }
 
 fn send_msg(runtime: &Runtime, mut sender: futures::channel::mpsc::UnboundedSender<Msg>, msg: Msg) {
