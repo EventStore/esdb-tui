@@ -19,6 +19,7 @@ use std::{
 };
 use structopt::StructOpt;
 use tokio::{runtime::Runtime, sync::RwLock};
+use tui::layout::Direction;
 use tui::{
     backend::{Backend, CrosstermBackend},
     layout::{Constraint, Layout},
@@ -44,6 +45,7 @@ fn parse_connection_string(
 struct App<'a> {
     pub titles: Vec<&'a str>,
     pub dashboard_headers: Vec<&'a str>,
+    pub stream_browser_headers: Vec<&'a str>,
     pub dashboard_table_state: TableState,
     pub index: usize,
 }
@@ -66,6 +68,7 @@ impl<'a> App<'a> {
                 "Items Processed",
                 "Current / Last Message",
             ],
+            stream_browser_headers: vec!["Recently Created Streams", "Recently Changed Streams"],
             dashboard_table_state: TableState::default(),
             index: 0,
         }
@@ -194,6 +197,7 @@ fn ui<B: Backend>(
 
     match app.index {
         0 => ui_dashboard(runtime, state, f, app),
+        1 => ui_stream_browser(runtime, state, f, app),
         _ => {}
     }
 }
@@ -265,6 +269,54 @@ fn ui_dashboard<B: Backend>(
     f.render_stateful_widget(table, rects[0], &mut app.dashboard_table_state)
 }
 
+fn ui_stream_browser<B: Backend>(
+    runtime: &Runtime,
+    state: Arc<RwLock<State>>,
+    f: &mut Frame<B>,
+    app: &mut App,
+) {
+    let rects = Layout::default()
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
+        .direction(Direction::Horizontal)
+        .margin(3)
+        .split(f.size());
+
+    let selected_style = Style::default().add_modifier(Modifier::REVERSED);
+    let normal_style = Style::default().add_modifier(Modifier::REVERSED);
+    let mut states = vec![TableState::default(), TableState::default()];
+    let browser = ask_stream_browser(runtime, state);
+
+    for (idx, name) in app.stream_browser_headers.iter().enumerate() {
+        let header_cells = vec![Cell::from(*name).style(Style::default().fg(Color::Green))];
+        let header = Row::new(header_cells)
+            .style(normal_style.clone())
+            .height(1)
+            .bottom_margin(1);
+
+        let cells = match idx {
+            0 => browser.last_created.iter(),
+            _ => browser.recently_changed.iter(),
+        };
+
+        let rows = cells
+            .map(|c| {
+                Row::new(vec![
+                    Cell::from(c.as_str()).style(Style::default().fg(Color::Gray))
+                ])
+            })
+            .collect::<Vec<_>>();
+
+        let table = Table::new(rows)
+            .header(header)
+            .block(Block::default().borders(Borders::ALL))
+            .highlight_style(selected_style.clone())
+            .highlight_symbol(">> ")
+            .widths(&[Constraint::Percentage(100)]);
+
+        f.render_stateful_widget(table, rects[idx], &mut states[idx]);
+    }
+}
+
 enum Msg {
     Tick,
 }
@@ -273,6 +325,7 @@ enum Msg {
 struct State {
     stats: Stats,
     last_created_streams: Vec<String>,
+    recently_changed_streams: Vec<String>,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -320,25 +373,13 @@ impl Stats {
                     "lengthLifetimePeak" => queue.length_lifetime_peak = value,
                     "inProgressMessage" => queue.in_progress_message = value,
                     "lastProcessedMessage" => queue.last_processed_message = value,
+                    "totalItemsProcessed" => queue.total_items_processed = value,
                     _ => {}
                 }
             }
         }
 
         Self { queues }
-    }
-}
-
-async fn ticking_loop(mut sender: futures::channel::mpsc::UnboundedSender<Msg>) {
-    let mut interval = tokio::time::interval(Duration::from_secs(2));
-    loop {
-        interval.tick().await;
-        debug!("ticking...");
-
-        if let Err(_) = sender.send(Msg::Tick).await {
-            error!("Main bus is no longer able to receive MSG anymore. WTF!?");
-            break;
-        }
     }
 }
 
@@ -360,6 +401,11 @@ async fn main_esdb_loop(
         .position(StreamPosition::End)
         .backwards();
 
+    let last_changed_all_options = eventstore::ReadAllOptions::default()
+        .max_count(20)
+        .position(StreamPosition::End)
+        .backwards();
+
     loop {
         time.tick().await;
 
@@ -369,19 +415,25 @@ async fn main_esdb_loop(
             .read_stream("$streams", &last_created_streams_options)
             .await?;
 
-        let mut streams = Vec::with_capacity(20);
-        while let Some(event) = read_stream_next(&mut stream_names).await? {
-            let stream_name = std::str::from_utf8(event.get_original_event().data.as_ref())
-                .expect("UTF-8 formatted text")
-                .split('@')
-                .collect::<Vec<&str>>()[0];
+        let mut all_stream = client.read_all(&last_changed_all_options).await?;
 
-            streams.push(stream_name.to_string());
+        state.last_created_streams.clear();
+        while let Some(event) = read_stream_next(&mut stream_names).await? {
+            let (_, stream_name) = std::str::from_utf8(event.get_original_event().data.as_ref())
+                .expect("UTF-8 formatted text")
+                .rsplit_once('@')
+                .unwrap_or_default();
+
+            state.last_created_streams.push(stream_name.to_string());
+        }
+
+        state.recently_changed_streams.clear();
+        while let Some(event) = read_stream_next(&mut all_stream).await? {
+            state
+                .recently_changed_streams
+                .push(event.get_original_event().stream_id.clone());
         }
     }
-
-    error!("Stream of MSG went empty, WTF!?");
-    Ok(())
 }
 
 async fn read_stream_next(
@@ -399,10 +451,26 @@ async fn read_stream_next(
     }
 }
 
+struct StreamBrowser {
+    last_created: Vec<String>,
+    recently_changed: Vec<String>,
+}
+
 fn ask_stats(runtime: &Runtime, state_ref: Arc<RwLock<State>>) -> Stats {
     runtime.block_on(async move {
         let state = state_ref.read().await;
         state.stats.clone()
+    })
+}
+
+fn ask_stream_browser(runtime: &Runtime, state_ref: Arc<RwLock<State>>) -> StreamBrowser {
+    runtime.block_on(async move {
+        let state = state_ref.read().await;
+
+        StreamBrowser {
+            last_created: state.last_created_streams.clone(),
+            recently_changed: state.recently_changed_streams.clone(),
+        }
     })
 }
 
