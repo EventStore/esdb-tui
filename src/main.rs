@@ -202,8 +202,28 @@ fn ui_dashboard<B: Backend>(
         .map(|h| Cell::from(*h).style(Style::default().fg(Color::Green)));
 
     let state = ask_snapshot(runtime, bus.clone());
+    let mut rows: Vec<Row> = Vec::new();
 
-    let rows: Vec<Row> = Vec::new();
+    for (name, queue) in state.stats.queues.iter() {
+        if !name.starts_with("Storage") && !name.starts_with("Projection") {
+            let mut cells = Vec::new();
+
+            cells.push(Cell::from(queue.queue_name.as_str()));
+            cells.push(Cell::from(format!(
+                "{} - {}",
+                queue.length_current_try_peak, queue.length_lifetime_peak
+            )));
+            cells.push(Cell::from(queue.avg_items_per_second.as_str()));
+            cells.push(Cell::from(queue.current_idle_time.as_str()));
+            cells.push(Cell::from(queue.total_items_processed.as_str()));
+            cells.push(Cell::from(format!(
+                "{} / {}",
+                queue.in_progress_message, queue.last_processed_message
+            )));
+
+            rows.push(Row::new(cells));
+        }
+    }
 
     let header = Row::new(header_cells)
         .style(normal_style)
@@ -245,7 +265,6 @@ struct State {
 
 #[derive(Default, Clone, Debug)]
 struct Queue {
-    name: String,
     avg_items_per_second: String,
     length_current_try_peak: String,
     current_idle_time: String,
@@ -256,6 +275,7 @@ struct Queue {
     total_items_processed: String,
     idle_time_percent: String,
     queue_name: String,
+    in_progress_message: String,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -282,6 +302,7 @@ impl Stats {
                     "length" => queue.length = value,
                     "groupName" => queue.group_name = value,
                     "lengthLifetimePeak" => queue.length_lifetime_peak = value,
+                    "inProgressMessage" => queue.in_progress_message = value,
                     _ => {}
                 }
             }
