@@ -243,7 +243,8 @@ dependencies = [
 [[package]]
 name = "eventstore"
 version = "2.1.1"
-source = "git+https://github.com/EventStore/EventStoreDB-Client-Rust.git?branch=master#de7447cd607711bb51dd687c717a1b21bb2faa38"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b739479a8e9a1d7e9ae85d290d8adceb3bf9c86e95b67a7e2e05d2a262f9e75f"
 dependencies = [
  "async-stream",
  "base64",

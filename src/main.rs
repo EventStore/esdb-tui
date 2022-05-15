@@ -6,9 +6,9 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use eventstore::{ClientSettings, StreamPosition};
-use futures::channel::mpsc::UnboundedSender;
+use eventstore::{ClientSettings, ProjectionStatus, StreamPosition};
 use futures::{channel::mpsc::UnboundedReceiver, SinkExt, StreamExt};
+use futures::{channel::mpsc::UnboundedSender, TryStreamExt};
 use itertools::Itertools;
 use log::{debug, error, LevelFilter};
 use log4rs::config::{Appender, Logger, Root};
@@ -46,8 +46,12 @@ struct App<'a> {
     pub titles: Vec<&'a str>,
     pub dashboard_headers: Vec<&'a str>,
     pub stream_browser_headers: Vec<&'a str>,
+    pub projections_headers: Vec<&'a str>,
     pub dashboard_table_state: TableState,
     pub index: usize,
+    pub projection_last_time: Option<Duration>,
+    pub projection_instant: Instant,
+    pub projection_last: HashMap<String, i64>,
 }
 
 impl<'a> App<'a> {
@@ -69,8 +73,23 @@ impl<'a> App<'a> {
                 "Current / Last Message",
             ],
             stream_browser_headers: vec!["Recently Created Streams", "Recently Changed Streams"],
+            projections_headers: vec![
+                "Name",
+                "Status",
+                "Checkpoint Status",
+                "Mode",
+                "Done",
+                "Read / Write in Progress",
+                "Write Queues",
+                "Partitions Cached",
+                "Rate (events/s)",
+                "Events",
+            ],
             dashboard_table_state: TableState::default(),
             index: 0,
+            projection_last_time: None,
+            projection_instant: Instant::now(),
+            projection_last: Default::default(),
         }
     }
 
@@ -102,7 +121,6 @@ fn main() -> Result<(), io::Error> {
 
     let _ = log4rs::init_config(config).unwrap();
 
-    let (sender, recv) = futures::channel::mpsc::unbounded();
     let state = Arc::new(RwLock::new(State::default()));
     // let _ = runtime.spawn(ticking_loop(sender.clone()));
     let _handle = runtime.spawn(main_esdb_loop(args.conn_setts, state.clone()));
@@ -114,7 +132,7 @@ fn main() -> Result<(), io::Error> {
     let mut terminal = Terminal::new(backend)?;
     let tick_rate = Duration::from_millis(250);
     let app = App::new();
-    let res = run_app(&runtime, state, &sender, &mut terminal, app, tick_rate);
+    let res = run_app(&runtime, state, &mut terminal, app, tick_rate);
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen,)?;
@@ -130,7 +148,6 @@ fn main() -> Result<(), io::Error> {
 fn run_app<B: Backend>(
     runtime: &Runtime,
     state: Arc<RwLock<State>>,
-    bus: &UnboundedSender<Msg>,
     terminal: &mut Terminal<B>,
     mut app: App,
     tick_rate: Duration,
@@ -138,7 +155,7 @@ fn run_app<B: Backend>(
     let mut last_tick = Instant::now();
 
     loop {
-        terminal.draw(|f| ui(runtime, state.clone(), bus, f, &mut app))?;
+        terminal.draw(|f| ui(runtime, state.clone(), f, &mut app))?;
 
         let timeout = tick_rate
             .checked_sub(last_tick.elapsed())
@@ -161,13 +178,7 @@ fn run_app<B: Backend>(
     }
 }
 
-fn ui<B: Backend>(
-    runtime: &Runtime,
-    state: Arc<RwLock<State>>,
-    bus: &UnboundedSender<Msg>,
-    f: &mut Frame<B>,
-    app: &mut App,
-) {
+fn ui<B: Backend>(runtime: &Runtime, state: Arc<RwLock<State>>, f: &mut Frame<B>, app: &mut App) {
     let size = f.size();
 
     let titles = app
@@ -198,6 +209,7 @@ fn ui<B: Backend>(
     match app.index {
         0 => ui_dashboard(runtime, state, f, app),
         1 => ui_stream_browser(runtime, state, f, app),
+        2 => ui_projections(runtime, state, f, app),
         _ => {}
     }
 }
@@ -317,8 +329,100 @@ fn ui_stream_browser<B: Backend>(
     }
 }
 
-enum Msg {
-    Tick,
+fn ui_projections<B: Backend>(
+    runtime: &Runtime,
+    state: Arc<RwLock<State>>,
+    f: &mut Frame<B>,
+    app: &mut App,
+) {
+    let rects = Layout::default()
+        .constraints([Constraint::Percentage(90)].as_ref())
+        .margin(3)
+        .split(f.size());
+
+    let selected_style = Style::default().add_modifier(Modifier::REVERSED);
+    let normal_style = Style::default().add_modifier(Modifier::REVERSED);
+    let header_cells = app
+        .projections_headers
+        .iter()
+        .map(|h| Cell::from(*h).style(Style::default().fg(Color::Green)));
+
+    let projections = ask_projections(runtime, state);
+    let mut rows: Vec<Row> = Vec::new();
+
+    for proj in projections {
+        let mut cells = Vec::new();
+
+        cells.push(Cell::from(proj.name.clone()));
+        cells.push(Cell::from(proj.status));
+        if proj.checkpoint_status.is_empty() {
+            cells.push(Cell::from("-"));
+        } else {
+            cells.push(Cell::from(proj.checkpoint_status));
+        }
+        cells.push(Cell::from(proj.mode));
+        cells.push(Cell::from(format!("{:.1}%", proj.progress)));
+        cells.push(Cell::from(format!(
+            "{} / {}",
+            proj.reads_in_progress, proj.writes_in_progress
+        )));
+        cells.push(Cell::from(proj.buffered_events.to_string()));
+        cells.push(Cell::from(proj.partitions_cached.to_string()));
+
+        if let Some(last_time) = app.projection_last_time {
+            let last = app
+                .projection_last
+                .get(&proj.name)
+                .copied()
+                .unwrap_or_default();
+            let events_processed = proj.events_processed_after_restart - last;
+            let now = app.projection_instant.elapsed();
+            let rate = events_processed as f32 / (now.as_secs_f32() - last_time.as_secs_f32());
+            cells.push(Cell::from(format!("{:.1}", rate)));
+            cells.push(Cell::from(events_processed.to_string()));
+            app.projection_last
+                .insert(proj.name, proj.events_processed_after_restart);
+        } else {
+            cells.push(Cell::from("0.0"));
+            cells.push(Cell::from("0"));
+            app.projection_last
+                .insert(proj.name, proj.events_processed_after_restart);
+        }
+
+        rows.push(Row::new(cells));
+        app.projection_last_time = Some(app.projection_instant.elapsed());
+    }
+
+    let header = Row::new(header_cells)
+        .style(normal_style)
+        .height(1)
+        .bottom_margin(1);
+
+    let table = Table::new(rows)
+        .header(header)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Projections")
+                .title_alignment(tui::layout::Alignment::Right),
+        )
+        .highlight_style(selected_style)
+        .highlight_symbol(">> ")
+        .widths(&[
+            Constraint::Percentage(15),
+            Constraint::Percentage(5),
+            Constraint::Percentage(10),
+            Constraint::Percentage(10),
+            Constraint::Percentage(10),
+            Constraint::Percentage(10),
+            Constraint::Percentage(10),
+            Constraint::Percentage(10),
+            Constraint::Percentage(10),
+            Constraint::Percentage(10),
+            Constraint::Percentage(10),
+        ]);
+
+    f.render_stateful_widget(table, rects[0], &mut app.dashboard_table_state)
 }
 
 #[derive(Default, Clone, Debug)]
@@ -326,6 +430,7 @@ struct State {
     stats: Stats,
     last_created_streams: Vec<String>,
     recently_changed_streams: Vec<String>,
+    projections: Vec<eventstore::ProjectionStatus>,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -389,7 +494,8 @@ async fn main_esdb_loop(
 ) -> eventstore::Result<()> {
     let mut time = tokio::time::interval(Duration::from_secs(2));
     let client = eventstore::Client::new(setts.clone())?;
-    let op_client = eventstore::operations::Client::new(setts);
+    let op_client = eventstore::operations::Client::new(setts.clone());
+    let proj_client = eventstore::ProjectionClient::new(setts);
     let stats_options = eventstore::operations::StatsOptions::default()
         .refresh_time(Duration::from_secs(1))
         .use_metadata(true);
@@ -433,6 +539,12 @@ async fn main_esdb_loop(
                 .recently_changed_streams
                 .push(event.get_original_event().stream_id.clone());
         }
+
+        state.projections.clear();
+        let mut projs = proj_client.list(&Default::default()).await?;
+        while let Some(proj) = projs.try_next().await? {
+            state.projections.push(proj);
+        }
     }
 }
 
@@ -474,8 +586,6 @@ fn ask_stream_browser(runtime: &Runtime, state_ref: Arc<RwLock<State>>) -> Strea
     })
 }
 
-fn send_msg(runtime: &Runtime, mut sender: futures::channel::mpsc::UnboundedSender<Msg>, msg: Msg) {
-    runtime.spawn(async move {
-        let _ = sender.send(msg).await;
-    });
+fn ask_projections(runtime: &Runtime, state_ref: Arc<RwLock<State>>) -> Vec<ProjectionStatus> {
+    runtime.block_on(async move { state_ref.read().await.projections.clone() })
 }
