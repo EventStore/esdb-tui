@@ -19,16 +19,16 @@ use std::{
 };
 use structopt::StructOpt;
 use tokio::{runtime::Runtime, sync::RwLock};
-use tui::layout::Direction;
 use tui::{
     backend::{Backend, CrosstermBackend},
     layout::{Constraint, Layout},
     style::{Color, Modifier, Style},
-    text::{Span, Spans},
+    text::Spans,
     widgets::{Block, Row, Table, TableState, Tabs},
     widgets::{Borders, Cell},
     Frame, Terminal,
 };
+use tui::{layout::Direction, text::Span};
 
 #[derive(StructOpt, Debug)]
 struct Args {
@@ -52,6 +52,28 @@ struct App<'a> {
     pub projection_last_time: Option<Duration>,
     pub projection_instant: Instant,
     pub projection_last: HashMap<String, i64>,
+    pub streams_view: StreamsView,
+}
+
+#[derive(Debug, Copy, Clone)]
+enum StreamsViewState {
+    RecentlyCreate,
+    RecentlyChanged,
+}
+
+#[derive(Debug)]
+struct StreamsView {
+    selected_index: usize,
+    state: usize,
+}
+
+impl Default for StreamsView {
+    fn default() -> Self {
+        Self {
+            selected_index: 0,
+            state: 0,
+        }
+    }
 }
 
 impl<'a> App<'a> {
@@ -90,6 +112,7 @@ impl<'a> App<'a> {
             projection_last_time: None,
             projection_instant: Instant::now(),
             projection_last: Default::default(),
+            streams_view: Default::default(),
         }
     }
 
@@ -103,6 +126,26 @@ impl<'a> App<'a> {
         } else {
             self.index = self.titles.len() - 1;
         }
+    }
+
+    fn streams_next_table(&mut self) {
+        self.streams_view.state = (self.streams_view.state + 1) % 2;
+    }
+
+    fn streams_previous_table(&mut self) {
+        self.streams_view.state = (self.streams_view.state + 1) % 2;
+    }
+
+    fn streams_up(&mut self) {
+        if self.streams_view.selected_index == 0 {
+            return;
+        }
+
+        self.streams_view.selected_index -= 1;
+    }
+
+    fn streams_down(&mut self) {
+        self.streams_view.selected_index += 1;
     }
 }
 
@@ -165,8 +208,12 @@ fn run_app<B: Backend>(
             if let Event::Key(key) = crossterm::event::read()? {
                 match key.code {
                     KeyCode::Char('q') => return Ok(()),
-                    KeyCode::Right => app.next_tab(),
-                    KeyCode::Left => app.previous_tab(),
+                    KeyCode::Tab => app.next_tab(),
+                    KeyCode::BackTab => app.previous_tab(),
+                    KeyCode::Right => app.streams_next_table(),
+                    KeyCode::Left => app.streams_previous_table(),
+                    KeyCode::Up => app.streams_up(),
+                    KeyCode::Down => app.streams_down(),
                     _ => {}
                 }
             }
@@ -309,6 +356,28 @@ fn ui_stream_browser<B: Backend>(
             0 => browser.last_created.iter(),
             _ => browser.recently_changed.iter(),
         };
+
+        match app.streams_view.state {
+            0 => {
+                if app.streams_view.selected_index > browser.last_created.len() - 1 {
+                    app.streams_view.selected_index = browser.last_created.len() - 1;
+                }
+            }
+
+            1 => {
+                if app.streams_view.selected_index > browser.recently_changed.len() - 1 {
+                    app.streams_view.selected_index = browser.recently_changed.len() - 1;
+                }
+            }
+
+            _ => unreachable!(),
+        }
+
+        if app.streams_view.state == idx {
+            states[idx].select(Some(app.streams_view.selected_index));
+        } else {
+            states[idx].select(None);
+        }
 
         let rows = cells
             .map(|c| {
