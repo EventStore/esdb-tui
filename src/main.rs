@@ -65,6 +65,8 @@ enum StreamsViewState {
 struct StreamsView {
     selected_index: usize,
     state: usize,
+    stream_screen: bool,
+    stream_state: TableState,
 }
 
 impl Default for StreamsView {
@@ -72,6 +74,8 @@ impl Default for StreamsView {
         Self {
             selected_index: 0,
             state: 0,
+            stream_screen: false,
+            stream_state: TableState::default(),
         }
     }
 }
@@ -207,13 +211,26 @@ fn run_app<B: Backend>(
         if crossterm::event::poll(timeout)? {
             if let Event::Key(key) = crossterm::event::read()? {
                 match key.code {
-                    KeyCode::Char('q') => return Ok(()),
+                    KeyCode::Char('q') => {
+                        if app.streams_view.stream_screen {
+                            app.streams_view.stream_screen = false;
+                            continue;
+                        }
+
+                        return Ok(());
+                    }
                     KeyCode::Tab => app.next_tab(),
                     KeyCode::BackTab => app.previous_tab(),
                     KeyCode::Right => app.streams_next_table(),
                     KeyCode::Left => app.streams_previous_table(),
                     KeyCode::Up => app.streams_up(),
                     KeyCode::Down => app.streams_down(),
+                    KeyCode::Enter => {
+                        // Stream browser view.
+                        if app.index == 1 {
+                            app.streams_view.stream_screen = true;
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -328,73 +345,120 @@ fn ui_dashboard<B: Backend>(
     f.render_stateful_widget(table, rects[0], &mut app.dashboard_table_state)
 }
 
+static STREAM_HEADERS: &[&'static str] = &["Event #", "Name", "Type", "Created Date", ""];
+
 fn ui_stream_browser<B: Backend>(
     runtime: &Runtime,
     state: Arc<RwLock<State>>,
     f: &mut Frame<B>,
     app: &mut App,
 ) {
-    let rects = Layout::default()
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
-        .direction(Direction::Horizontal)
-        .margin(3)
-        .split(f.size());
-
     let selected_style = Style::default().add_modifier(Modifier::REVERSED);
     let normal_style = Style::default().add_modifier(Modifier::REVERSED);
-    let mut states = vec![TableState::default(), TableState::default()];
-    let browser = ask_stream_browser(runtime, state);
 
-    for (idx, name) in app.stream_browser_headers.iter().enumerate() {
-        let header_cells = vec![Cell::from(*name).style(Style::default().fg(Color::Green))];
+    if app.streams_view.stream_screen {
+        let rects = Layout::default()
+            .constraints([Constraint::Percentage(100)].as_ref())
+            .margin(3)
+            .split(f.size());
+
+        let browser = ask_stream_browser(runtime, state);
+
+        let stream_name = if app.streams_view.state == 0 {
+            browser.last_created[app.streams_view.selected_index].as_str()
+        } else {
+            browser.recently_changed[app.streams_view.selected_index].as_str()
+        };
+
+        let header_cells = STREAM_HEADERS
+            .iter()
+            .map(|h| Cell::from(*h).style(Style::default().fg(Color::Green)));
+
         let header = Row::new(header_cells)
-            .style(normal_style.clone())
+            .style(normal_style)
             .height(1)
             .bottom_margin(1);
 
-        let cells = match idx {
-            0 => browser.last_created.iter(),
-            _ => browser.recently_changed.iter(),
-        };
-
-        match app.streams_view.state {
-            0 => {
-                if app.streams_view.selected_index > browser.last_created.len() - 1 {
-                    app.streams_view.selected_index = browser.last_created.len() - 1;
-                }
-            }
-
-            1 => {
-                if app.streams_view.selected_index > browser.recently_changed.len() - 1 {
-                    app.streams_view.selected_index = browser.recently_changed.len() - 1;
-                }
-            }
-
-            _ => unreachable!(),
-        }
-
-        if app.streams_view.state == idx {
-            states[idx].select(Some(app.streams_view.selected_index));
-        } else {
-            states[idx].select(None);
-        }
-
-        let rows = cells
-            .map(|c| {
-                Row::new(vec![
-                    Cell::from(c.as_str()).style(Style::default().fg(Color::Gray))
-                ])
-            })
-            .collect::<Vec<_>>();
+        let rows = Vec::new();
 
         let table = Table::new(rows)
             .header(header)
-            .block(Block::default().borders(Borders::ALL))
-            .highlight_style(selected_style.clone())
-            .highlight_symbol(">> ")
-            .widths(&[Constraint::Percentage(100)]);
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(format!("Event Stream '{}'", stream_name))
+                    .title_alignment(tui::layout::Alignment::Left),
+            )
+            .highlight_style(selected_style)
+            .widths(&[
+                Constraint::Percentage(20),
+                Constraint::Percentage(20),
+                Constraint::Percentage(20),
+                Constraint::Percentage(20),
+                Constraint::Percentage(20),
+            ]);
 
-        f.render_stateful_widget(table, rects[idx], &mut states[idx]);
+        f.render_stateful_widget(table, rects[0], &mut app.streams_view.stream_state);
+    } else {
+        let rects = Layout::default()
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
+            .direction(Direction::Horizontal)
+            .margin(3)
+            .split(f.size());
+
+        let mut states = vec![TableState::default(), TableState::default()];
+        let browser = ask_stream_browser(runtime, state);
+
+        for (idx, name) in app.stream_browser_headers.iter().enumerate() {
+            let header_cells = vec![Cell::from(*name).style(Style::default().fg(Color::Green))];
+            let header = Row::new(header_cells)
+                .style(normal_style.clone())
+                .height(1)
+                .bottom_margin(1);
+
+            let cells = match idx {
+                0 => browser.last_created.iter(),
+                _ => browser.recently_changed.iter(),
+            };
+
+            match app.streams_view.state {
+                0 => {
+                    if app.streams_view.selected_index > browser.last_created.len() - 1 {
+                        app.streams_view.selected_index = browser.last_created.len() - 1;
+                    }
+                }
+
+                1 => {
+                    if app.streams_view.selected_index > browser.recently_changed.len() - 1 {
+                        app.streams_view.selected_index = browser.recently_changed.len() - 1;
+                    }
+                }
+
+                _ => unreachable!(),
+            }
+
+            if app.streams_view.state == idx {
+                states[idx].select(Some(app.streams_view.selected_index));
+            } else {
+                states[idx].select(None);
+            }
+
+            let rows = cells
+                .map(|c| {
+                    Row::new(vec![
+                        Cell::from(c.as_str()).style(Style::default().fg(Color::Gray))
+                    ])
+                })
+                .collect::<Vec<_>>();
+
+            let table = Table::new(rows)
+                .header(header)
+                .block(Block::default().borders(Borders::ALL))
+                .highlight_style(selected_style.clone())
+                .widths(&[Constraint::Percentage(100)]);
+
+            f.render_stateful_widget(table, rects[idx], &mut states[idx]);
+        }
     }
 }
 
