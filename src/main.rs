@@ -1,3 +1,5 @@
+mod views;
+
 #[macro_use]
 use log;
 
