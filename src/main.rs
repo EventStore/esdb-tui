@@ -3,6 +3,7 @@ mod views;
 #[macro_use]
 use log;
 
+use crate::views::View;
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
@@ -54,7 +55,7 @@ struct App<'a> {
     pub projection_instant: Instant,
     pub projection_last: HashMap<String, i64>,
     pub streams_view: StreamsView,
-    pub dashboard_view: views::dashboard::View,
+    pub dashboard_view: views::dashboard::DashboardView,
 }
 
 #[derive(Debug, Copy, Clone)]

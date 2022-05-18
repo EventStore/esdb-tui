@@ -1,9 +1,12 @@
 use eventstore::ClientSettings;
 use std::io;
 use tokio::runtime::Runtime;
+use tui::backend::Backend;
 use tui::style::{Modifier, Style};
+use tui::Frame;
 
 pub mod dashboard;
+pub mod stream_browser;
 
 pub struct Context {
     runtime: Runtime,
@@ -40,4 +43,11 @@ impl Context {
     pub fn runtime(&self) -> &Runtime {
         &self.runtime
     }
+}
+
+pub trait View {
+    fn load(&mut self, ctx: &Context);
+    fn unload(&mut self, ctx: &Context);
+    fn refresh(&mut self, ctx: &Context);
+    fn draw<B: Backend>(&mut self, ctx: &Context, frame: &mut Frame<B>);
 }

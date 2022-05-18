@@ -1,4 +1,4 @@
-use crate::views::Context;
+use crate::views::{Context, View};
 use eventstore::operations::Stats;
 use itertools::Itertools;
 use log::error;
@@ -75,13 +75,13 @@ impl Model {
     }
 }
 
-pub struct View {
+pub struct DashboardView {
     table_state: TableState,
     stats: Option<Arc<RwLock<Stats>>>,
     instant: Instant,
 }
 
-impl Default for View {
+impl Default for DashboardView {
     fn default() -> Self {
         Self {
             table_state: TableState::default(),
@@ -91,8 +91,20 @@ impl Default for View {
     }
 }
 
-impl View {
-    pub fn draw<B: Backend>(&mut self, ctx: &Context, frame: &mut Frame<B>) {
+impl View for DashboardView {
+    fn load(&mut self, ctx: &Context) {
+        todo!()
+    }
+
+    fn unload(&mut self, ctx: &Context) {
+        todo!()
+    }
+
+    fn refresh(&mut self, ctx: &Context) {
+        todo!()
+    }
+
+    fn draw<B: Backend>(&mut self, ctx: &Context, frame: &mut Frame<B>) {
         let rects = Layout::default()
             .constraints([Constraint::Percentage(100)].as_ref())
             .margin(3)
