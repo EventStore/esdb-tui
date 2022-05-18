@@ -6,6 +6,7 @@ use tui::style::{Modifier, Style};
 use tui::Frame;
 
 pub mod dashboard;
+pub mod projections;
 pub mod stream_browser;
 
 pub struct Context {
@@ -14,6 +15,7 @@ pub struct Context {
     normal_style: Style,
     client: eventstore::Client,
     op_client: eventstore::operations::Client,
+    proj_client: eventstore::ProjectionClient,
 }
 
 impl Context {
@@ -22,12 +24,13 @@ impl Context {
             .enable_all()
             .build()?;
 
-        let (client, op_client) = runtime
+        let (client, op_client, proj_client) = runtime
             .block_on(async move {
+                let proj_client = eventstore::ProjectionClient::new(setts.clone());
                 let client = eventstore::Client::new(setts)?;
                 let op_client = eventstore::operations::Client::from(client.clone());
 
-                Ok::<_, eventstore::Error>((client, op_client))
+                Ok::<_, eventstore::Error>((client, op_client, proj_client))
             })
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
@@ -35,6 +38,7 @@ impl Context {
             runtime,
             client,
             op_client,
+            proj_client,
             selected_style: Style::default().add_modifier(Modifier::REVERSED),
             normal_style: Style::default().add_modifier(Modifier::REVERSED),
         })
