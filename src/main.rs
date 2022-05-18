@@ -45,16 +45,16 @@ fn parse_connection_string(
 }
 
 struct App<'a> {
+    pub context: views::Context,
     pub titles: Vec<&'a str>,
-    pub dashboard_headers: Vec<&'a str>,
     pub stream_browser_headers: Vec<&'a str>,
     pub projections_headers: Vec<&'a str>,
-    pub dashboard_table_state: TableState,
     pub index: usize,
     pub projection_last_time: Option<Duration>,
     pub projection_instant: Instant,
     pub projection_last: HashMap<String, i64>,
     pub streams_view: StreamsView,
+    pub dashboard_view: views::dashboard::View,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -83,22 +83,16 @@ impl Default for StreamsView {
 }
 
 impl<'a> App<'a> {
-    fn new() -> App<'a> {
-        App {
+    fn new(setts: ClientSettings) -> io::Result<App<'a>> {
+        let context = views::Context::new(setts)?;
+        Ok(App {
+            context,
             titles: vec![
                 "Dashboard",
                 "Streams Browser",
                 "Projections",
                 "Query",
                 "Persistent Subscriptions",
-            ],
-            dashboard_headers: vec![
-                "Queue Name",
-                "Length (Current | Peak)",
-                "Rate (items/s)",
-                "Time (ms/item)",
-                "Items Processed",
-                "Current / Last Message",
             ],
             stream_browser_headers: vec!["Recently Created Streams", "Recently Changed Streams"],
             projections_headers: vec![
@@ -113,13 +107,13 @@ impl<'a> App<'a> {
                 "Rate (events/s)",
                 "Events",
             ],
-            dashboard_table_state: TableState::default(),
             index: 0,
             projection_last_time: None,
             projection_instant: Instant::now(),
             projection_last: Default::default(),
             streams_view: Default::default(),
-        }
+            dashboard_view: Default::default(),
+        })
     }
 
     fn next_tab(&mut self) {
@@ -157,9 +151,6 @@ impl<'a> App<'a> {
 
 fn main() -> Result<(), io::Error> {
     let args = Args::from_args();
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?;
 
     let file = log4rs::append::file::FileAppender::builder().build("esdb.log")?;
     let config = log4rs::config::Config::builder()
@@ -172,7 +163,6 @@ fn main() -> Result<(), io::Error> {
 
     let state = Arc::new(RwLock::new(State::default()));
     // let _ = runtime.spawn(ticking_loop(sender.clone()));
-    let _handle = runtime.spawn(main_esdb_loop(args.conn_setts, state.clone()));
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -180,8 +170,8 @@ fn main() -> Result<(), io::Error> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
     let tick_rate = Duration::from_millis(250);
-    let app = App::new();
-    let res = run_app(&runtime, state, &mut terminal, app, tick_rate);
+    let app = App::new(args.conn_setts)?;
+    let res = run_app(state, &mut terminal, app, tick_rate);
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen,)?;
@@ -195,7 +185,6 @@ fn main() -> Result<(), io::Error> {
 }
 
 fn run_app<B: Backend>(
-    runtime: &Runtime,
     state: Arc<RwLock<State>>,
     terminal: &mut Terminal<B>,
     mut app: App,
@@ -204,7 +193,7 @@ fn run_app<B: Backend>(
     let mut last_tick = Instant::now();
 
     loop {
-        terminal.draw(|f| ui(runtime, state.clone(), f, &mut app))?;
+        terminal.draw(|f| ui(state.clone(), f, &mut app))?;
 
         let timeout = tick_rate
             .checked_sub(last_tick.elapsed())
@@ -244,7 +233,7 @@ fn run_app<B: Backend>(
     }
 }
 
-fn ui<B: Backend>(runtime: &Runtime, state: Arc<RwLock<State>>, f: &mut Frame<B>, app: &mut App) {
+fn ui<B: Backend>(state: Arc<RwLock<State>>, f: &mut Frame<B>, app: &mut App) {
     let size = f.size();
 
     let titles = app
@@ -273,88 +262,16 @@ fn ui<B: Backend>(runtime: &Runtime, state: Arc<RwLock<State>>, f: &mut Frame<B>
     f.render_widget(tabs, size);
 
     match app.index {
-        0 => ui_dashboard(runtime, state, f, app),
-        1 => ui_stream_browser(runtime, state, f, app),
-        2 => ui_projections(runtime, state, f, app),
+        0 => app.dashboard_view.draw(&app.context, f),
+        1 => ui_stream_browser(state, f, app),
+        2 => ui_projections(state, f, app),
         _ => {}
     }
 }
 
-fn ui_dashboard<B: Backend>(
-    runtime: &Runtime,
-    state: Arc<RwLock<State>>,
-    f: &mut Frame<B>,
-    app: &mut App,
-) {
-    let rects = Layout::default()
-        .constraints([Constraint::Percentage(90)].as_ref())
-        .margin(3)
-        .split(f.size());
-
-    let selected_style = Style::default().add_modifier(Modifier::REVERSED);
-    let normal_style = Style::default().add_modifier(Modifier::REVERSED);
-    let header_cells = app
-        .dashboard_headers
-        .iter()
-        .map(|h| Cell::from(*h).style(Style::default().fg(Color::Green)));
-
-    let stats = ask_stats(runtime, state);
-    let mut rows: Vec<Row> = Vec::new();
-
-    for (name, queue) in stats.queues.iter().sorted_by(|(a, _), (b, _)| a.cmp(b)) {
-        let mut cells = Vec::new();
-
-        cells.push(Cell::from(queue.queue_name.as_str()));
-        cells.push(Cell::from(format!(
-            "{} | {}",
-            queue.length_current_try_peak, queue.length_lifetime_peak
-        )));
-        cells.push(Cell::from(queue.avg_items_per_second.as_str()));
-        cells.push(Cell::from(queue.current_idle_time.as_str()));
-        cells.push(Cell::from(queue.total_items_processed.as_str()));
-        cells.push(Cell::from(format!(
-            "{} / {}",
-            queue.in_progress_message, queue.last_processed_message
-        )));
-
-        rows.push(Row::new(cells));
-    }
-
-    let header = Row::new(header_cells)
-        .style(normal_style)
-        .height(1)
-        .bottom_margin(1);
-
-    let table = Table::new(rows)
-        .header(header)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title("Dashboard")
-                .title_alignment(tui::layout::Alignment::Right),
-        )
-        .highlight_style(selected_style)
-        .highlight_symbol(">> ")
-        .widths(&[
-            Constraint::Percentage(15),
-            Constraint::Percentage(15),
-            Constraint::Percentage(10),
-            Constraint::Percentage(10),
-            Constraint::Percentage(10),
-            Constraint::Percentage(40),
-        ]);
-
-    f.render_stateful_widget(table, rects[0], &mut app.dashboard_table_state)
-}
-
 static STREAM_HEADERS: &[&'static str] = &["Event #", "Name", "Type", "Created Date", ""];
 
-fn ui_stream_browser<B: Backend>(
-    runtime: &Runtime,
-    state: Arc<RwLock<State>>,
-    f: &mut Frame<B>,
-    app: &mut App,
-) {
+fn ui_stream_browser<B: Backend>(state: Arc<RwLock<State>>, f: &mut Frame<B>, app: &mut App) {
     let selected_style = Style::default().add_modifier(Modifier::REVERSED);
     let normal_style = Style::default().add_modifier(Modifier::REVERSED);
 
@@ -364,7 +281,7 @@ fn ui_stream_browser<B: Backend>(
             .margin(3)
             .split(f.size());
 
-        let browser = ask_stream_browser(runtime, state);
+        let browser = ask_stream_browser(app.context.runtime(), state);
 
         let stream_name = if app.streams_view.state == 0 {
             browser.last_created[app.streams_view.selected_index].as_str()
@@ -409,7 +326,7 @@ fn ui_stream_browser<B: Backend>(
             .split(f.size());
 
         let mut states = vec![TableState::default(), TableState::default()];
-        let browser = ask_stream_browser(runtime, state);
+        let browser = ask_stream_browser(app.context.runtime(), state);
 
         for (idx, name) in app.stream_browser_headers.iter().enumerate() {
             let header_cells = vec![Cell::from(*name).style(Style::default().fg(Color::Green))];
@@ -464,12 +381,7 @@ fn ui_stream_browser<B: Backend>(
     }
 }
 
-fn ui_projections<B: Backend>(
-    runtime: &Runtime,
-    state: Arc<RwLock<State>>,
-    f: &mut Frame<B>,
-    app: &mut App,
-) {
+fn ui_projections<B: Backend>(state: Arc<RwLock<State>>, f: &mut Frame<B>, app: &mut App) {
     let rects = Layout::default()
         .constraints([Constraint::Percentage(90)].as_ref())
         .margin(3)
@@ -482,7 +394,7 @@ fn ui_projections<B: Backend>(
         .iter()
         .map(|h| Cell::from(*h).style(Style::default().fg(Color::Green)));
 
-    let projections = ask_projections(runtime, state);
+    let projections = ask_projections(app.context.runtime(), state);
     let mut rows: Vec<Row> = Vec::new();
 
     for proj in projections {
@@ -557,7 +469,7 @@ fn ui_projections<B: Backend>(
             Constraint::Percentage(10),
         ]);
 
-    f.render_stateful_widget(table, rects[0], &mut app.dashboard_table_state)
+    f.render_stateful_widget(table, rects[0], &mut Default::default());
 }
 
 #[derive(Default, Clone, Debug)]

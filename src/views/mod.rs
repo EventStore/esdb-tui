@@ -3,7 +3,7 @@ use std::io;
 use tokio::runtime::Runtime;
 use tui::style::{Modifier, Style};
 
-mod dashboard;
+pub mod dashboard;
 
 pub struct Context {
     runtime: Runtime,
@@ -35,5 +35,9 @@ impl Context {
             selected_style: Style::default().add_modifier(Modifier::REVERSED),
             normal_style: Style::default().add_modifier(Modifier::REVERSED),
         })
+    }
+
+    pub fn runtime(&self) -> &Runtime {
+        &self.runtime
     }
 }
