@@ -1,5 +1,6 @@
-use crate::views::Context;
+use crate::views::{Context, Env, ViewCtx, B};
 use crate::View;
+use crossterm::event::KeyCode;
 use eventstore::ProjectionStatus;
 use futures::TryStreamExt;
 use std::collections::HashMap;
@@ -48,10 +49,10 @@ impl Default for Model {
 }
 
 impl View for ProjectionsViews {
-    fn load(&mut self, ctx: &Context) {
-        let client = ctx.proj_client.clone();
-        self.model.projections = ctx
-            .runtime
+    fn load(&mut self, env: &Env) {
+        let client = env.proj_client.clone();
+        self.model.projections = env
+            .handle
             .block_on(async move {
                 client
                     .list(&Default::default())
@@ -62,11 +63,11 @@ impl View for ProjectionsViews {
             .unwrap();
     }
 
-    fn unload(&mut self, ctx: &Context) {}
+    fn unload(&mut self, env: &Env) {}
 
-    fn refresh(&mut self, ctx: &Context) {}
+    fn refresh(&mut self, env: &Env) {}
 
-    fn draw<B: Backend>(&mut self, ctx: &Context, frame: &mut Frame<B>) {
+    fn draw(&mut self, ctx: ViewCtx, frame: &mut Frame<B>) {
         let rects = Layout::default()
             .constraints([Constraint::Percentage(100)].as_ref())
             .margin(3)
@@ -153,5 +154,9 @@ impl View for ProjectionsViews {
             ]);
 
         frame.render_stateful_widget(table, rects[0], &mut Default::default());
+    }
+
+    fn on_key_pressed(&mut self, key: KeyCode) -> bool {
+        true
     }
 }

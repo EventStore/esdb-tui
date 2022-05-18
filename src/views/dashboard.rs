@@ -1,5 +1,7 @@
-use crate::views::{Context, View};
+use crate::views::{Context, Env, View, ViewCtx, B};
+use crossterm::event::KeyCode;
 use eventstore::operations::Stats;
+use futures::TryStreamExt;
 use itertools::Itertools;
 use log::error;
 use std::collections::HashMap;
@@ -36,6 +38,7 @@ struct Queue {
     in_progress_message: String,
 }
 
+#[derive(Default)]
 struct Model {
     queues: HashMap<String, Queue>,
 }
@@ -77,34 +80,54 @@ impl Model {
 
 pub struct DashboardView {
     table_state: TableState,
-    stats: Option<Arc<RwLock<Stats>>>,
-    instant: Instant,
+    model: Model,
+    stats: Arc<RwLock<Option<Stats>>>,
 }
 
 impl Default for DashboardView {
     fn default() -> Self {
         Self {
             table_state: TableState::default(),
-            stats: None,
-            instant: Instant::now(),
+            model: Model::default(),
+            stats: Arc::new(RwLock::new(None)),
         }
     }
 }
 
 impl View for DashboardView {
-    fn load(&mut self, ctx: &Context) {
-        todo!()
+    fn load(&mut self, env: &Env) {
+        self.refresh(env);
     }
 
-    fn unload(&mut self, ctx: &Context) {
-        todo!()
+    fn unload(&mut self, env: &Env) {}
+
+    fn refresh(&mut self, env: &Env) {
+        let client = env.op_client.clone();
+        let mut state = self.stats.clone();
+
+        self.model = env
+            .handle
+            .block_on(async move {
+                let mut state = state.write().await;
+                if state.is_none() {
+                    let options = eventstore::operations::StatsOptions::default()
+                        .use_metadata(true)
+                        .refresh_time(Duration::from_secs(2));
+
+                    *state = Some(client.stats(&options).await?);
+                }
+
+                let mut model = Model::default();
+                if let Some(stats) = state.as_mut() {
+                    model = Model::from(stats.next().await?.unwrap_or_default());
+                }
+
+                Ok::<_, eventstore::Error>(model)
+            })
+            .unwrap();
     }
 
-    fn refresh(&mut self, ctx: &Context) {
-        todo!()
-    }
-
-    fn draw<B: Backend>(&mut self, ctx: &Context, frame: &mut Frame<B>) {
+    fn draw(&mut self, ctx: ViewCtx, frame: &mut Frame<B>) {
         let rects = Layout::default()
             .constraints([Constraint::Percentage(100)].as_ref())
             .margin(3)
@@ -114,40 +137,13 @@ impl View for DashboardView {
             .iter()
             .map(|h| Cell::from(*h).style(Style::default().fg(Color::Green)));
 
-        if self.stats.is_none() {
-            let client = ctx.op_client.clone();
-            let stats = ctx
-                .runtime
-                .block_on(async move {
-                    let options = eventstore::operations::StatsOptions::default()
-                        .use_metadata(true)
-                        .refresh_time(Duration::from_secs(2));
-
-                    client.stats(&options).await
-                })
-                .unwrap();
-
-            self.stats = Some(Arc::new(RwLock::new(stats)));
-        }
-
-        if self.instant.elapsed() < Duration::from_secs(1) {
-            return;
-        }
-
-        self.instant = Instant::now();
-        let stats = self.stats.as_ref().unwrap().clone();
-        let model = ctx
-            .runtime
-            .block_on(async move {
-                let mut stats = stats.write().await;
-                let model = Model::from(stats.next().await?.unwrap_or_default());
-
-                Ok::<_, eventstore::Error>(model)
-            })
-            .unwrap();
-
         let mut rows = Vec::new();
-        for (name, queue) in model.queues.iter().sorted_by(|(a, _), (b, _)| a.cmp(b)) {
+        for (name, queue) in self
+            .model
+            .queues
+            .iter()
+            .sorted_by(|(a, _), (b, _)| a.cmp(b))
+        {
             let mut cells = Vec::new();
 
             cells.push(Cell::from(name.as_str()));
@@ -190,5 +186,9 @@ impl View for DashboardView {
             ]);
 
         frame.render_stateful_widget(table, rects[0], &mut self.table_state)
+    }
+
+    fn on_key_pressed(&mut self, key: KeyCode) -> bool {
+        true
     }
 }

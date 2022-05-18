@@ -1,4 +1,5 @@
-use crate::views::{Context, View};
+use crate::views::{Context, Env, View, ViewCtx, B};
+use crossterm::event::KeyCode;
 use eventstore::StreamPosition;
 use tui::backend::Backend;
 use tui::layout::{Constraint, Direction, Layout};
@@ -38,10 +39,10 @@ struct Model {
 }
 
 impl View for StreamsView {
-    fn load(&mut self, ctx: &Context) {
-        let client = ctx.client.clone();
-        self.model = ctx
-            .runtime
+    fn load(&mut self, env: &Env) {
+        let client = env.client.clone();
+        self.model = env
+            .handle
             .block_on(async move {
                 let mut model = Model::default();
                 let options_1 = eventstore::ReadStreamOptions::default()
@@ -78,11 +79,11 @@ impl View for StreamsView {
             .unwrap();
     }
 
-    fn unload(&mut self, ctx: &Context) {}
+    fn unload(&mut self, env: &Env) {}
 
-    fn refresh(&mut self, ctx: &Context) {}
+    fn refresh(&mut self, env: &Env) {}
 
-    fn draw<B: Backend>(&mut self, ctx: &Context, frame: &mut Frame<B>) {
+    fn draw(&mut self, ctx: ViewCtx, frame: &mut Frame<B>) {
         if self.stream_view_showing {
             let rects = Layout::default()
                 .constraints([Constraint::Percentage(100)].as_ref())
@@ -166,6 +167,10 @@ impl View for StreamsView {
                 frame.render_stateful_widget(table, rects[idx], &mut self.main_table_states[idx]);
             }
         }
+    }
+
+    fn on_key_pressed(&mut self, key: KeyCode) -> bool {
+        true
     }
 }
 
