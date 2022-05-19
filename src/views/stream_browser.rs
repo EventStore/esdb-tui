@@ -40,6 +40,8 @@ struct Model {
 
 impl View for StreamsView {
     fn load(&mut self, env: &Env) {
+        self.selected = 0;
+        self.selected_tab = 0;
         let client = env.client.clone();
         self.model = env
             .handle
@@ -170,6 +172,32 @@ impl View for StreamsView {
     }
 
     fn on_key_pressed(&mut self, key: KeyCode) -> bool {
+        match key {
+            KeyCode::Left | KeyCode::Right => {
+                self.selected_tab = (self.selected_tab + 1) % 2;
+                self.selected = 0;
+            }
+
+            KeyCode::Up => {
+                if self.selected > 0 {
+                    self.selected -= 1;
+                }
+            }
+
+            KeyCode::Down => {
+                let len = if self.selected_tab == 0 {
+                    self.model.last_created.len()
+                } else {
+                    self.model.recently_changed.len()
+                };
+
+                if self.selected < len - 1 {
+                    self.selected += 1;
+                }
+            }
+
+            _ => {}
+        }
         true
     }
 }
