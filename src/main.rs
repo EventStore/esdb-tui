@@ -182,7 +182,9 @@ fn main() -> Result<(), io::Error> {
 
 fn run_app(terminal: &mut Terminal<B>, setts: ClientSettings) -> io::Result<()> {
     let tick_rate = Duration::from_millis(250);
+    let refresh_rate = Duration::from_secs(2);
     let mut last_tick = Instant::now();
+    let mut last_refresh = Instant::now();
     let mut ctx = Context::new(setts)?;
 
     ctx.init();
@@ -204,6 +206,11 @@ fn run_app(terminal: &mut Terminal<B>, setts: ClientSettings) -> io::Result<()> 
 
         if last_tick.elapsed() >= tick_rate {
             last_tick = Instant::now();
+        }
+
+        if last_refresh.elapsed() >= refresh_rate {
+            last_refresh = Instant::now();
+            ctx.refresh();
         }
     }
 }

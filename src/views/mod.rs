@@ -1,5 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent};
 use eventstore::ClientSettings;
+use log::{debug, error};
 use std::io;
 use std::io::Stdout;
 use std::time::{Duration, Instant};
@@ -87,13 +88,17 @@ impl Context {
         &self.runtime
     }
 
-    pub fn on_key_pressed(&mut self, key: KeyEvent) -> bool {
-        let env = Env {
+    fn mk_env(&self) -> Env {
+        Env {
             handle: self.runtime.handle().clone(),
             client: self.client.clone(),
             op_client: self.op_client.clone(),
             proj_client: self.proj_client.clone(),
-        };
+        }
+    }
+
+    pub fn on_key_pressed(&mut self, key: KeyEvent) -> bool {
+        let env = self.mk_env();
 
         let previous = self.selected_tab;
 
@@ -143,6 +148,13 @@ impl Context {
         }
 
         true
+    }
+
+    pub fn refresh(&mut self) {
+        let env = self.mk_env();
+        if let Some(view) = self.views.get_mut(self.selected_tab) {
+            view.refresh(&env);
+        }
     }
 
     pub fn draw(&mut self, frame: &mut Frame<B>) {
