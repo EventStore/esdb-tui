@@ -51,10 +51,17 @@ struct Model {
     selected_stream_events: Vec<ResolvedEvent>,
 }
 
+impl Model {
+    fn clear(&mut self) {
+        self.last_created.clear();
+        self.recently_changed.clear();
+        self.selected_stream = None;
+        self.selected_stream_events.clear();
+    }
+}
+
 impl View for StreamsView {
     fn load(&mut self, env: &Env) {
-        self.selected = 0;
-        self.selected_tab = 0;
         let client = env.client.clone();
         self.model = env
             .handle
@@ -97,7 +104,12 @@ impl View for StreamsView {
             .unwrap();
     }
 
-    fn unload(&mut self, env: &Env) {}
+    fn unload(&mut self, env: &Env) {
+        self.selected = 0;
+        self.selected_tab = 0;
+        self.stage = Stage::Main;
+        self.model.clear();
+    }
 
     fn refresh(&mut self, env: &Env) {
         if let Some(stream_name) = self.model.selected_stream.clone() {
