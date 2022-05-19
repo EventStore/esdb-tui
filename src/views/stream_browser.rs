@@ -71,9 +71,12 @@ impl View for StreamsView {
                 }
 
                 while let Some(event) = read_stream_next(&mut all_stream).await? {
-                    model
-                        .recently_changed
-                        .push(event.get_original_event().stream_id.clone());
+                    let stream_id = &event.get_original_event().stream_id;
+                    if model.recently_changed.contains(stream_id) {
+                        continue;
+                    }
+
+                    model.recently_changed.push(stream_id.clone());
                 }
 
                 Ok::<_, eventstore::Error>(model)
@@ -193,6 +196,18 @@ impl View for StreamsView {
 
                 if self.selected < len - 1 {
                     self.selected += 1;
+                }
+            }
+
+            KeyCode::Enter => {
+                if !self.stream_view_showing {
+                    self.stream_view_showing = true;
+                }
+            }
+
+            KeyCode::Esc => {
+                if self.stream_view_showing {
+                    self.stream_view_showing = false;
                 }
             }
 
