@@ -188,7 +188,5 @@ impl View for DashboardView {
         frame.render_stateful_widget(table, rects[0], &mut self.table_state)
     }
 
-    fn on_key_pressed(&mut self, key: KeyCode) -> bool {
-        true
-    }
+    fn on_key_pressed(&mut self, key: KeyCode) {}
 }

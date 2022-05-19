@@ -208,7 +208,7 @@ pub trait View {
     fn unload(&mut self, env: &Env);
     fn refresh(&mut self, env: &Env);
     fn draw(&mut self, ctx: ViewCtx, frame: &mut Frame<B>);
-    fn on_key_pressed(&mut self, key: KeyCode) -> bool;
+    fn on_key_pressed(&mut self, key: KeyCode);
 }
 
 #[derive(Debug, Copy, Clone)]

@@ -171,7 +171,7 @@ impl View for StreamsView {
         }
     }
 
-    fn on_key_pressed(&mut self, key: KeyCode) -> bool {
+    fn on_key_pressed(&mut self, key: KeyCode) {
         match key {
             KeyCode::Left | KeyCode::Right => {
                 self.selected_tab = (self.selected_tab + 1) % 2;
@@ -198,7 +198,6 @@ impl View for StreamsView {
 
             _ => {}
         }
-        true
     }
 }
 
