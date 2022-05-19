@@ -3,7 +3,7 @@ mod views;
 #[macro_use]
 extern crate log;
 
-use crate::views::{Context, View, B};
+use crate::views::{Context, Request, View, B};
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
@@ -93,8 +93,13 @@ fn run_app(terminal: &mut Terminal<B>, setts: ClientSettings) -> io::Result<()> 
 
         if crossterm::event::poll(timeout)? {
             if let Event::Key(key) = crossterm::event::read()? {
-                if !ctx.on_key_pressed(key) {
-                    return Ok(());
+                match ctx.on_key_pressed(key) {
+                    Request::Exit => return Ok(()),
+                    Request::Refresh => {
+                        last_refresh = Instant::now();
+                        ctx.refresh();
+                    }
+                    Request::Noop => {}
                 }
             }
         }

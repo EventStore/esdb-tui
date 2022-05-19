@@ -109,6 +109,7 @@ impl View for StreamsView {
     fn unload(&mut self, env: &Env) {
         self.selected = 0;
         self.selected_tab = 0;
+        self.scroll = 0;
         self.stage = Stage::Main;
         self.model.clear();
     }
@@ -326,6 +327,21 @@ impl View for StreamsView {
 
     fn on_key_pressed(&mut self, key: KeyCode) -> Request {
         match key {
+            KeyCode::Char('q' | 'Q') => {
+                return match self.stage {
+                    Stage::Main => Request::Exit,
+                    Stage::Stream => {
+                        self.stage = Stage::Main;
+                        Request::Noop
+                    }
+                    Stage::Popup => {
+                        self.scroll = 0;
+                        self.stage = Stage::Stream;
+                        Request::Noop
+                    }
+                }
+            }
+
             KeyCode::Left | KeyCode::Right => {
                 self.selected_tab = (self.selected_tab + 1) % 2;
                 self.selected = 0;
@@ -383,17 +399,6 @@ impl View for StreamsView {
                     self.stage = Stage::Popup;
 
                     return Request::Refresh;
-                }
-            }
-
-            KeyCode::Esc => {
-                if self.stage == Stage::Stream {
-                    self.stage = Stage::Main;
-                    self.model.selected_stream = None;
-                    self.selected = 0;
-                    return Request::Refresh;
-                } else if self.stage == Stage::Popup {
-                    self.stage = Stage::Stream;
                 }
             }
 

@@ -188,6 +188,10 @@ impl View for DashboardView {
     }
 
     fn on_key_pressed(&mut self, key: KeyCode) -> Request {
+        if let KeyCode::Char('q' | 'Q') = key {
+            return Request::Exit;
+        }
+
         Request::Noop
     }
 }

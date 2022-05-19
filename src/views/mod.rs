@@ -96,13 +96,10 @@ impl Context {
         }
     }
 
-    pub fn on_key_pressed(&mut self, key: KeyEvent) -> bool {
+    pub fn on_key_pressed(&mut self, key: KeyEvent) -> Request {
         let env = self.mk_env();
 
         match key.code {
-            KeyCode::Char('q') => {
-                return false;
-            }
             KeyCode::Tab => {
                 if let Some(view) = self.views.get_mut(self.selected_tab) {
                     view.unload(&env);
@@ -131,14 +128,12 @@ impl Context {
             }
             _ => {
                 if let Some(view) = self.views.get_mut(self.selected_tab) {
-                    if let Request::Refresh = view.on_key_pressed(key.code) {
-                        view.refresh(&env);
-                    }
+                    return view.on_key_pressed(key.code);
                 }
             }
         }
 
-        true
+        Request::Noop
     }
 
     pub fn refresh(&mut self) {
@@ -220,4 +215,5 @@ static TABS: &[MainTab] = &[
 pub enum Request {
     Noop,
     Refresh,
+    Exit,
 }
