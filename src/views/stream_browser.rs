@@ -28,6 +28,7 @@ pub struct StreamsView {
     stream_table_state: TableState,
     model: Model,
     stage: Stage,
+    scroll: u16,
 }
 
 impl Default for StreamsView {
@@ -39,6 +40,7 @@ impl Default for StreamsView {
             stream_table_state: Default::default(),
             model: Default::default(),
             stage: Stage::Main,
+            scroll: 0,
         }
     }
 }
@@ -314,7 +316,8 @@ impl View for StreamsView {
 
                 let paragraph = Paragraph::new(Text::styled(content, Style::default()))
                     .alignment(Alignment::Left)
-                    .block(Block::default().borders(Borders::ALL));
+                    .block(Block::default().borders(Borders::ALL))
+                    .scroll((self.scroll, 0));
 
                 frame.render_widget(paragraph, rects[1])
             }
@@ -329,7 +332,11 @@ impl View for StreamsView {
             }
 
             KeyCode::Up => {
-                if self.selected > 0 {
+                if self.stage == Stage::Popup {
+                    if self.scroll > 0 {
+                        self.scroll -= 1;
+                    }
+                } else if self.selected > 0 {
                     self.selected -= 1;
                 }
             }
@@ -351,7 +358,11 @@ impl View for StreamsView {
                         self.selected += 1;
                     }
                 }
-                Stage::Popup => {}
+                Stage::Popup => {
+                    if self.scroll < 10 {
+                        self.scroll += 1;
+                    }
+                }
             },
 
             KeyCode::Enter => {
