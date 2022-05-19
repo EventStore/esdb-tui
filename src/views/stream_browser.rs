@@ -4,22 +4,30 @@ use crossterm::cursor::position;
 use crossterm::event::KeyCode;
 use eventstore::{ResolvedEvent, StreamPosition};
 use tui::backend::Backend;
-use tui::layout::{Constraint, Direction, Layout};
+use tui::layout::{Alignment, Constraint, Direction, Layout};
 use tui::style::Color::Gray;
 use tui::style::{Color, Style};
-use tui::widgets::{Block, Borders, Cell, Row, Table, TableState};
+use tui::text::{Span, Text};
+use tui::widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState};
 use tui::Frame;
 
 static HEADERS: &[&'static str] = &["Recently Created Streams", "Recently Changed Streams"];
 static STREAM_HEADERS: &[&'static str] = &["Event #", "Name", "Type", "Created Date"];
 
+#[derive(Copy, Clone, Eq, PartialEq)]
+enum Stage {
+    Main,
+    Stream,
+    Popup,
+}
+
 pub struct StreamsView {
     selected_tab: usize,
     selected: usize,
-    stream_view_showing: bool,
     main_table_states: Vec<TableState>,
     stream_table_state: TableState,
     model: Model,
+    stage: Stage,
 }
 
 impl Default for StreamsView {
@@ -27,10 +35,10 @@ impl Default for StreamsView {
         Self {
             selected_tab: 0,
             selected: 0,
-            stream_view_showing: false,
             main_table_states: vec![TableState::default(), TableState::default()],
             stream_table_state: Default::default(),
             model: Default::default(),
+            stage: Stage::Main,
         }
     }
 }
@@ -117,98 +125,186 @@ impl View for StreamsView {
     }
 
     fn draw(&mut self, ctx: ViewCtx, frame: &mut Frame<B>) {
-        if self.stream_view_showing {
-            let rects = Layout::default()
-                .constraints([Constraint::Percentage(100)].as_ref())
-                .margin(3)
-                .split(frame.size());
+        match self.stage {
+            Stage::Main => {
+                let rects = Layout::default()
+                    .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
+                    .direction(Direction::Horizontal)
+                    .margin(3)
+                    .split(frame.size());
 
-            let stream_name = self.model.selected_stream.clone().unwrap_or_default();
+                for (idx, name) in HEADERS.iter().enumerate() {
+                    let header_cells =
+                        vec![Cell::from(*name).style(Style::default().fg(Color::Green))];
+                    let header = Row::new(header_cells)
+                        .style(ctx.normal_style)
+                        .height(1)
+                        .bottom_margin(1);
 
-            let header_cells = STREAM_HEADERS
-                .iter()
-                .map(|h| Cell::from(*h).style(Style::default().fg(Color::Green)));
+                    let cells = match idx {
+                        0 => self.model.last_created.iter(),
+                        _ => self.model.recently_changed.iter(),
+                    };
 
-            let header = Row::new(header_cells)
-                .style(ctx.normal_style)
-                .height(1)
-                .bottom_margin(1);
+                    if self.selected_tab == idx {
+                        self.main_table_states[idx].select(Some(self.selected));
+                    } else {
+                        self.main_table_states[idx].select(None);
+                    }
 
-            let mut rows = Vec::new();
+                    let rows = cells
+                        .map(|c| {
+                            Row::new(vec![
+                                Cell::from(c.as_str()).style(Style::default().fg(Color::Gray))
+                            ])
+                        })
+                        .collect::<Vec<_>>();
 
-            for event in self.model.selected_stream_events.iter() {
-                let event = event.get_original_event();
-                let mut cols = Vec::new();
+                    let table = Table::new(rows)
+                        .header(header)
+                        .block(Block::default().borders(Borders::ALL))
+                        .highlight_style(ctx.selected_style)
+                        .widths(&[Constraint::Percentage(100)]);
 
-                cols.push(Cell::from(event.revision.to_string()).style(Style::default().fg(Gray)));
-
-                let name = format!("{}@{}", event.revision, event.stream_id);
-                cols.push(Cell::from(name).style(Style::default().fg(Gray)));
-                cols.push(Cell::from(event.event_type.clone()).style(Style::default().fg(Gray)));
-                cols.push(Cell::from(Utc::now().to_string()).style(Style::default().fg(Gray)));
-
-                rows.push(Row::new(cols));
+                    frame.render_stateful_widget(
+                        table,
+                        rects[idx],
+                        &mut self.main_table_states[idx],
+                    );
+                }
             }
+            Stage::Stream => {
+                let rects = Layout::default()
+                    .constraints([Constraint::Percentage(100)].as_ref())
+                    .margin(3)
+                    .split(frame.size());
 
-            let table = Table::new(rows)
-                .header(header)
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title(format!("Event Stream '{}'", stream_name))
-                        .title_alignment(tui::layout::Alignment::Left),
-                )
-                .highlight_style(ctx.selected_style)
-                .widths(&[
-                    Constraint::Percentage(25),
-                    Constraint::Percentage(25),
-                    Constraint::Percentage(25),
-                    Constraint::Percentage(25),
-                ]);
+                let stream_name = self.model.selected_stream.clone().unwrap_or_default();
 
-            self.stream_table_state.select(Some(self.selected));
+                let header_cells = STREAM_HEADERS
+                    .iter()
+                    .map(|h| Cell::from(*h).style(Style::default().fg(Color::Green)));
 
-            frame.render_stateful_widget(table, rects[0], &mut self.stream_table_state);
-        } else {
-            let rects = Layout::default()
-                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
-                .direction(Direction::Horizontal)
-                .margin(3)
-                .split(frame.size());
-
-            for (idx, name) in HEADERS.iter().enumerate() {
-                let header_cells = vec![Cell::from(*name).style(Style::default().fg(Color::Green))];
                 let header = Row::new(header_cells)
                     .style(ctx.normal_style)
                     .height(1)
                     .bottom_margin(1);
 
-                let cells = match idx {
-                    0 => self.model.last_created.iter(),
-                    _ => self.model.recently_changed.iter(),
-                };
+                let mut rows = Vec::new();
 
-                if self.selected_tab == idx {
-                    self.main_table_states[idx].select(Some(self.selected));
-                } else {
-                    self.main_table_states[idx].select(None);
+                for event in self.model.selected_stream_events.iter() {
+                    let event = event.get_original_event();
+                    let mut cols = Vec::new();
+
+                    cols.push(
+                        Cell::from(event.revision.to_string()).style(Style::default().fg(Gray)),
+                    );
+
+                    let name = format!("{}@{}", event.revision, event.stream_id);
+                    cols.push(Cell::from(name).style(Style::default().fg(Gray)));
+                    cols.push(
+                        Cell::from(event.event_type.clone()).style(Style::default().fg(Gray)),
+                    );
+                    cols.push(Cell::from(Utc::now().to_string()).style(Style::default().fg(Gray)));
+
+                    rows.push(Row::new(cols));
                 }
-
-                let rows = cells
-                    .map(|c| {
-                        Row::new(vec![
-                            Cell::from(c.as_str()).style(Style::default().fg(Color::Gray))
-                        ])
-                    })
-                    .collect::<Vec<_>>();
 
                 let table = Table::new(rows)
                     .header(header)
-                    .block(Block::default().borders(Borders::ALL))
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title(format!("Event Stream '{}'", stream_name))
+                            .title_alignment(tui::layout::Alignment::Left),
+                    )
                     .highlight_style(ctx.selected_style)
-                    .widths(&[Constraint::Percentage(100)]);
+                    .widths(&[
+                        Constraint::Percentage(25),
+                        Constraint::Percentage(25),
+                        Constraint::Percentage(25),
+                        Constraint::Percentage(25),
+                    ]);
 
-                frame.render_stateful_widget(table, rects[idx], &mut self.main_table_states[idx]);
+                self.stream_table_state.select(Some(self.selected));
+
+                frame.render_stateful_widget(table, rects[0], &mut self.stream_table_state);
+            }
+            Stage::Popup => {
+                let rects = Layout::default()
+                    .constraints([Constraint::Max(5), Constraint::Percentage(80)].as_ref())
+                    .margin(3)
+                    .split(frame.size());
+
+                let stream_name = self.model.selected_stream.clone().unwrap_or_default();
+
+                let header_cells = STREAM_HEADERS
+                    .iter()
+                    .map(|h| Cell::from(*h).style(Style::default().fg(Color::Green)));
+
+                let header = Row::new(header_cells)
+                    .style(ctx.normal_style)
+                    .height(1)
+                    .bottom_margin(1);
+
+                let mut rows = Vec::new();
+                let event = &self.model.selected_stream_events[self.selected];
+                let target_event = event.event.as_ref().unwrap();
+                let mut cols = Vec::new();
+
+                cols.push(
+                    Cell::from(event.get_original_event().revision.to_string())
+                        .style(Style::default().fg(Gray)),
+                );
+
+                let name = format!(
+                    "{}@{}",
+                    event.get_original_event().revision,
+                    event.get_original_event().stream_id
+                );
+                cols.push(Cell::from(name.as_str()).style(Style::default().fg(Gray)));
+                cols.push(
+                    Cell::from(target_event.event_type.clone()).style(Style::default().fg(Gray)),
+                );
+                cols.push(Cell::from(Utc::now().to_string()).style(Style::default().fg(Gray)));
+
+                rows.push(Row::new(cols));
+
+                let table = Table::new(rows)
+                    .header(header)
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title(format!("Event '{}'", name))
+                            .title_alignment(tui::layout::Alignment::Left),
+                    )
+                    .highlight_style(ctx.selected_style)
+                    .widths(&[
+                        Constraint::Percentage(25),
+                        Constraint::Percentage(25),
+                        Constraint::Percentage(25),
+                        Constraint::Percentage(25),
+                    ]);
+
+                self.stream_table_state.select(Some(self.selected));
+
+                frame.render_stateful_widget(table, rects[0], &mut Default::default());
+
+                let content = if event.event.as_ref().unwrap().is_json {
+                    let json =
+                        serde_json::from_slice::<serde_json::Value>(target_event.data.as_ref())
+                            .unwrap();
+
+                    serde_json::to_string_pretty(&json).unwrap()
+                } else {
+                    "<BINARY>".to_string()
+                };
+
+                let paragraph = Paragraph::new(Text::styled(content, Style::default()))
+                    .alignment(Alignment::Left)
+                    .block(Block::default().borders(Borders::ALL));
+
+                frame.render_widget(paragraph, rects[1])
             }
         }
     }
@@ -226,12 +322,8 @@ impl View for StreamsView {
                 }
             }
 
-            KeyCode::Down => {
-                if self.stream_view_showing {
-                    if self.selected < self.model.selected_stream_events.len() - 1 {
-                        self.selected += 1;
-                    }
-                } else {
+            KeyCode::Down => match self.stage {
+                Stage::Main => {
                     let len = if self.selected_tab == 0 {
                         self.model.last_created.len()
                     } else {
@@ -242,11 +334,17 @@ impl View for StreamsView {
                         self.selected += 1;
                     }
                 }
-            }
+                Stage::Stream => {
+                    if self.selected < self.model.selected_stream_events.len() - 1 {
+                        self.selected += 1;
+                    }
+                }
+                Stage::Popup => {}
+            },
 
             KeyCode::Enter => {
-                if !self.stream_view_showing {
-                    self.stream_view_showing = true;
+                if self.stage == Stage::Main {
+                    self.stage = Stage::Stream;
 
                     let rows = if self.selected_tab == 0 {
                         &self.model.last_created
@@ -258,15 +356,21 @@ impl View for StreamsView {
                     self.selected = 0;
 
                     return Request::Refresh;
+                } else if self.stage == Stage::Stream {
+                    self.stage = Stage::Popup;
+
+                    return Request::Refresh;
                 }
             }
 
             KeyCode::Esc => {
-                if self.stream_view_showing {
-                    self.stream_view_showing = false;
+                if self.stage == Stage::Stream {
+                    self.stage = Stage::Main;
                     self.model.selected_stream = None;
                     self.selected = 0;
                     return Request::Refresh;
+                } else if self.stage == Stage::Popup {
+                    self.stage = Stage::Stream;
                 }
             }
 
