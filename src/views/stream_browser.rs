@@ -1,14 +1,17 @@
-use crate::views::{Context, Env, View, ViewCtx, B};
+use crate::views::{Context, Env, Request, View, ViewCtx, B};
+use chrono::Utc;
+use crossterm::cursor::position;
 use crossterm::event::KeyCode;
-use eventstore::StreamPosition;
+use eventstore::{ResolvedEvent, StreamPosition};
 use tui::backend::Backend;
 use tui::layout::{Constraint, Direction, Layout};
+use tui::style::Color::Gray;
 use tui::style::{Color, Style};
 use tui::widgets::{Block, Borders, Cell, Row, Table, TableState};
 use tui::Frame;
 
 static HEADERS: &[&'static str] = &["Recently Created Streams", "Recently Changed Streams"];
-static STREAM_HEADERS: &[&'static str] = &["Event #", "Name", "Type", "Created Date", ""];
+static STREAM_HEADERS: &[&'static str] = &["Event #", "Name", "Type", "Created Date"];
 
 pub struct StreamsView {
     selected_tab: usize,
@@ -36,6 +39,8 @@ impl Default for StreamsView {
 struct Model {
     last_created: Vec<String>,
     recently_changed: Vec<String>,
+    selected_stream: Option<String>,
+    selected_stream_events: Vec<ResolvedEvent>,
 }
 
 impl View for StreamsView {
@@ -86,7 +91,30 @@ impl View for StreamsView {
 
     fn unload(&mut self, env: &Env) {}
 
-    fn refresh(&mut self, env: &Env) {}
+    fn refresh(&mut self, env: &Env) {
+        if let Some(stream_name) = self.model.selected_stream.clone() {
+            let client = env.client.clone();
+            self.model.selected_stream_events = env
+                .handle
+                .block_on(async move {
+                    let options = eventstore::ReadStreamOptions::default()
+                        .max_count(20)
+                        .resolve_link_tos()
+                        .position(StreamPosition::End)
+                        .backwards();
+
+                    let mut stream = client.read_stream(stream_name, &options).await?;
+                    let mut events = Vec::new();
+
+                    while let Some(event) = stream.next().await? {
+                        events.push(event);
+                    }
+
+                    Ok::<_, eventstore::Error>(events)
+                })
+                .unwrap();
+        }
+    }
 
     fn draw(&mut self, ctx: ViewCtx, frame: &mut Frame<B>) {
         if self.stream_view_showing {
@@ -95,11 +123,7 @@ impl View for StreamsView {
                 .margin(3)
                 .split(frame.size());
 
-            let stream_name = if self.selected_tab == 0 {
-                self.model.last_created[self.selected].as_str()
-            } else {
-                self.model.recently_changed[self.selected].as_str()
-            };
+            let stream_name = self.model.selected_stream.clone().unwrap_or_default();
 
             let header_cells = STREAM_HEADERS
                 .iter()
@@ -110,7 +134,21 @@ impl View for StreamsView {
                 .height(1)
                 .bottom_margin(1);
 
-            let rows = Vec::new();
+            let mut rows = Vec::new();
+
+            for event in self.model.selected_stream_events.iter() {
+                let event = event.get_original_event();
+                let mut cols = Vec::new();
+
+                cols.push(Cell::from(event.revision.to_string()).style(Style::default().fg(Gray)));
+
+                let name = format!("{}@{}", event.revision, event.stream_id);
+                cols.push(Cell::from(name).style(Style::default().fg(Gray)));
+                cols.push(Cell::from(event.event_type.clone()).style(Style::default().fg(Gray)));
+                cols.push(Cell::from(Utc::now().to_string()).style(Style::default().fg(Gray)));
+
+                rows.push(Row::new(cols));
+            }
 
             let table = Table::new(rows)
                 .header(header)
@@ -122,12 +160,13 @@ impl View for StreamsView {
                 )
                 .highlight_style(ctx.selected_style)
                 .widths(&[
-                    Constraint::Percentage(20),
-                    Constraint::Percentage(20),
-                    Constraint::Percentage(20),
-                    Constraint::Percentage(20),
-                    Constraint::Percentage(20),
+                    Constraint::Percentage(25),
+                    Constraint::Percentage(25),
+                    Constraint::Percentage(25),
+                    Constraint::Percentage(25),
                 ]);
+
+            self.stream_table_state.select(Some(self.selected));
 
             frame.render_stateful_widget(table, rects[0], &mut self.stream_table_state);
         } else {
@@ -174,7 +213,7 @@ impl View for StreamsView {
         }
     }
 
-    fn on_key_pressed(&mut self, key: KeyCode) {
+    fn on_key_pressed(&mut self, key: KeyCode) -> Request {
         match key {
             KeyCode::Left | KeyCode::Right => {
                 self.selected_tab = (self.selected_tab + 1) % 2;
@@ -188,31 +227,53 @@ impl View for StreamsView {
             }
 
             KeyCode::Down => {
-                let len = if self.selected_tab == 0 {
-                    self.model.last_created.len()
+                if self.stream_view_showing {
+                    if self.selected < self.model.selected_stream_events.len() - 1 {
+                        self.selected += 1;
+                    }
                 } else {
-                    self.model.recently_changed.len()
-                };
+                    let len = if self.selected_tab == 0 {
+                        self.model.last_created.len()
+                    } else {
+                        self.model.recently_changed.len()
+                    };
 
-                if self.selected < len - 1 {
-                    self.selected += 1;
+                    if self.selected < len - 1 {
+                        self.selected += 1;
+                    }
                 }
             }
 
             KeyCode::Enter => {
                 if !self.stream_view_showing {
                     self.stream_view_showing = true;
+
+                    let rows = if self.selected_tab == 0 {
+                        &self.model.last_created
+                    } else {
+                        &self.model.recently_changed
+                    };
+
+                    self.model.selected_stream = Some(rows[self.selected].clone());
+                    self.selected = 0;
+
+                    return Request::Refresh;
                 }
             }
 
             KeyCode::Esc => {
                 if self.stream_view_showing {
                     self.stream_view_showing = false;
+                    self.model.selected_stream = None;
+                    self.selected = 0;
+                    return Request::Refresh;
                 }
             }
 
             _ => {}
         }
+
+        Request::Noop
     }
 }
 

@@ -1,7 +1,7 @@
 mod views;
 
 #[macro_use]
-use log;
+extern crate log;
 
 use crate::views::{Context, View, B};
 use crossterm::{
@@ -13,7 +13,7 @@ use eventstore::{ClientSettings, ProjectionStatus, StreamPosition};
 use futures::{channel::mpsc::UnboundedReceiver, SinkExt, StreamExt};
 use futures::{channel::mpsc::UnboundedSender, TryStreamExt};
 use itertools::Itertools;
-use log::{debug, error, LevelFilter};
+use log::LevelFilter;
 use log4rs::config::{Appender, Logger, Root};
 use std::{collections::HashMap, sync::Arc};
 use std::{
@@ -43,111 +43,6 @@ fn parse_connection_string(
     input: &str,
 ) -> Result<ClientSettings, eventstore::ClientSettingsParseError> {
     ClientSettings::parse_str(input)
-}
-
-struct App<'a> {
-    pub context: views::Context,
-    pub titles: Vec<&'a str>,
-    pub stream_browser_headers: Vec<&'a str>,
-    pub projections_headers: Vec<&'a str>,
-    pub index: usize,
-    pub projection_last_time: Option<Duration>,
-    pub projection_instant: Instant,
-    pub projection_last: HashMap<String, i64>,
-    pub streams_view: StreamsView,
-    pub dashboard_view: views::dashboard::DashboardView,
-}
-
-#[derive(Debug, Copy, Clone)]
-enum StreamsViewState {
-    RecentlyCreate,
-    RecentlyChanged,
-}
-
-#[derive(Debug)]
-struct StreamsView {
-    selected_index: usize,
-    state: usize,
-    stream_screen: bool,
-    stream_state: TableState,
-}
-
-impl Default for StreamsView {
-    fn default() -> Self {
-        Self {
-            selected_index: 0,
-            state: 0,
-            stream_screen: false,
-            stream_state: TableState::default(),
-        }
-    }
-}
-
-impl<'a> App<'a> {
-    fn new(setts: ClientSettings) -> io::Result<App<'a>> {
-        let context = views::Context::new(setts)?;
-        Ok(App {
-            context,
-            titles: vec![
-                "Dashboard",
-                "Streams Browser",
-                "Projections",
-                "Query",
-                "Persistent Subscriptions",
-            ],
-            stream_browser_headers: vec!["Recently Created Streams", "Recently Changed Streams"],
-            projections_headers: vec![
-                "Name",
-                "Status",
-                "Checkpoint Status",
-                "Mode",
-                "Done",
-                "Read / Write in Progress",
-                "Write Queues",
-                "Partitions Cached",
-                "Rate (events/s)",
-                "Events",
-            ],
-            index: 0,
-            projection_last_time: None,
-            projection_instant: Instant::now(),
-            projection_last: Default::default(),
-            streams_view: Default::default(),
-            dashboard_view: Default::default(),
-        })
-    }
-
-    fn next_tab(&mut self) {
-        self.index = (self.index + 1) % self.titles.len();
-    }
-
-    fn previous_tab(&mut self) {
-        if self.index > 0 {
-            self.index -= 1;
-        } else {
-            self.index = self.titles.len() - 1;
-        }
-    }
-
-    fn streams_next_table(&mut self) {
-        self.streams_view.state = (self.streams_view.state + 1) % 2;
-    }
-
-    fn streams_previous_table(&mut self) {
-        self.streams_view.state = (self.streams_view.state + 1) % 2;
-    }
-
-    fn streams_up(&mut self) {
-        if self.streams_view.selected_index == 0 {
-            return;
-        }
-
-        self.streams_view.selected_index -= 1;
-    }
-
-    fn streams_down(&mut self) {
-        self.streams_view.selected_index += 1;
-    }
 }
 
 fn main() -> Result<(), io::Error> {

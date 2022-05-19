@@ -1,9 +1,8 @@
-use crate::views::{Context, Env, View, ViewCtx, B};
+use crate::views::{Context, Env, Request, View, ViewCtx, B};
 use crossterm::event::KeyCode;
 use eventstore::operations::Stats;
 use futures::TryStreamExt;
 use itertools::Itertools;
-use log::error;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -188,5 +187,7 @@ impl View for DashboardView {
         frame.render_stateful_widget(table, rects[0], &mut self.table_state)
     }
 
-    fn on_key_pressed(&mut self, key: KeyCode) {}
+    fn on_key_pressed(&mut self, key: KeyCode) -> Request {
+        Request::Noop
+    }
 }

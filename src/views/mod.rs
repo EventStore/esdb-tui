@@ -1,6 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent};
 use eventstore::ClientSettings;
-use log::{debug, error};
 use std::io;
 use std::io::Stdout;
 use std::time::{Duration, Instant};
@@ -100,8 +99,6 @@ impl Context {
     pub fn on_key_pressed(&mut self, key: KeyEvent) -> bool {
         let env = self.mk_env();
 
-        let previous = self.selected_tab;
-
         match key.code {
             KeyCode::Char('q') => {
                 return false;
@@ -134,16 +131,10 @@ impl Context {
             }
             _ => {
                 if let Some(view) = self.views.get_mut(self.selected_tab) {
-                    view.on_key_pressed(key.code);
+                    if let Request::Refresh = view.on_key_pressed(key.code) {
+                        view.refresh(&env);
+                    }
                 }
-            }
-        }
-
-        if self.selected_tab == previous && self.time.elapsed() >= Duration::from_secs(1) {
-            self.time = Instant::now();
-
-            if let Some(view) = self.views.get_mut(self.selected_tab) {
-                view.refresh(&env);
             }
         }
 
@@ -208,7 +199,7 @@ pub trait View {
     fn unload(&mut self, env: &Env);
     fn refresh(&mut self, env: &Env);
     fn draw(&mut self, ctx: ViewCtx, frame: &mut Frame<B>);
-    fn on_key_pressed(&mut self, key: KeyCode);
+    fn on_key_pressed(&mut self, key: KeyCode) -> Request;
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -225,3 +216,8 @@ static TABS: &[MainTab] = &[
     MainTab::Projections,
     MainTab::PersistentSubscriptions,
 ];
+
+pub enum Request {
+    Noop,
+    Refresh,
+}

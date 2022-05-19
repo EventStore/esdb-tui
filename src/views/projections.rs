@@ -1,4 +1,4 @@
-use crate::views::{Context, Env, ViewCtx, B};
+use crate::views::{Context, Env, Request, ViewCtx, B};
 use crate::View;
 use crossterm::event::KeyCode;
 use eventstore::ProjectionStatus;
@@ -156,5 +156,7 @@ impl View for ProjectionsViews {
         frame.render_stateful_widget(table, rects[0], &mut Default::default());
     }
 
-    fn on_key_pressed(&mut self, key: KeyCode) {}
+    fn on_key_pressed(&mut self, key: KeyCode) -> Request {
+        Request::Noop
+    }
 }

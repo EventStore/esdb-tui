@@ -229,6 +229,7 @@ dependencies = [
 name = "esdb"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "crossterm",
  "eventstore",
  "futures",
