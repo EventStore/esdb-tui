@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
-use tui::layout::{Constraint, Layout};
+use tui::layout::{Constraint, Direction, Layout, Rect};
 use tui::style::{Color, Style};
 use tui::widgets::{Block, Borders, Cell, Row, Table, TableState};
 use tui::Frame;
@@ -124,11 +124,12 @@ impl View for DashboardView {
             .unwrap();
     }
 
-    fn draw(&mut self, ctx: ViewCtx, frame: &mut Frame<B>) {
+    fn draw(&mut self, ctx: ViewCtx, frame: &mut Frame<B>, area: Rect) {
         let rects = Layout::default()
-            .constraints([Constraint::Percentage(100)].as_ref())
-            .margin(3)
-            .split(frame.size());
+            .constraints([Constraint::Min(0)].as_ref())
+            .direction(Direction::Vertical)
+            .margin(2)
+            .split(area);
 
         let header_cells = HEADERS
             .iter()
@@ -168,7 +169,7 @@ impl View for DashboardView {
             .header(header)
             .block(
                 Block::default()
-                    .borders(Borders::ALL)
+                    .borders(Borders::TOP | Borders::BOTTOM)
                     .title("Dashboard")
                     .title_alignment(tui::layout::Alignment::Right),
             )
@@ -191,5 +192,9 @@ impl View for DashboardView {
         }
 
         Request::Noop
+    }
+
+    fn keybindings(&self) -> &[(&str, &str)] {
+        &[]
     }
 }

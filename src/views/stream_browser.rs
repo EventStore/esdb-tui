@@ -2,7 +2,7 @@ use crate::views::{Env, Request, View, ViewCtx, B};
 use chrono::Utc;
 use crossterm::event::KeyCode;
 use eventstore::{ResolvedEvent, StreamPosition};
-use tui::layout::{Alignment, Constraint, Direction, Layout};
+use tui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use tui::style::Color::Gray;
 use tui::style::{Color, Style};
 use tui::text::Text;
@@ -137,14 +137,14 @@ impl View for StreamsView {
         }
     }
 
-    fn draw(&mut self, ctx: ViewCtx, frame: &mut Frame<B>) {
+    fn draw(&mut self, ctx: ViewCtx, frame: &mut Frame<B>, area: Rect) {
         match self.stage {
             Stage::Main => {
                 let rects = Layout::default()
                     .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
                     .direction(Direction::Horizontal)
-                    .margin(3)
-                    .split(frame.size());
+                    .margin(2)
+                    .split(area);
 
                 for (idx, name) in HEADERS.iter().enumerate() {
                     let header_cells =
@@ -173,9 +173,15 @@ impl View for StreamsView {
                         })
                         .collect::<Vec<_>>();
 
+                    let border_type = if idx == 0 {
+                        Borders::TOP | Borders::RIGHT
+                    } else {
+                        Borders::TOP
+                    };
+
                     let table = Table::new(rows)
                         .header(header)
-                        .block(Block::default().borders(Borders::ALL))
+                        .block(Block::default().borders(border_type))
                         .highlight_style(ctx.selected_style)
                         .widths(&[Constraint::Percentage(100)]);
 
@@ -189,8 +195,8 @@ impl View for StreamsView {
             Stage::Stream => {
                 let rects = Layout::default()
                     .constraints([Constraint::Percentage(100)].as_ref())
-                    .margin(3)
-                    .split(frame.size());
+                    .margin(2)
+                    .split(area);
 
                 let stream_name = self.model.selected_stream.clone().unwrap_or_default();
 
@@ -227,9 +233,9 @@ impl View for StreamsView {
                     .header(header)
                     .block(
                         Block::default()
-                            .borders(Borders::ALL)
+                            .borders(Borders::TOP)
                             .title(format!("Event Stream '{}'", stream_name))
-                            .title_alignment(tui::layout::Alignment::Left),
+                            .title_alignment(Alignment::Right),
                     )
                     .highlight_style(ctx.selected_style)
                     .widths(&[
@@ -245,9 +251,9 @@ impl View for StreamsView {
             }
             Stage::Popup => {
                 let rects = Layout::default()
-                    .constraints([Constraint::Max(5), Constraint::Percentage(80)].as_ref())
-                    .margin(3)
-                    .split(frame.size());
+                    .constraints([Constraint::Length(4), Constraint::Min(0)].as_ref())
+                    .margin(2)
+                    .split(area);
 
                 let header_cells = STREAM_HEADERS
                     .iter()
@@ -285,9 +291,9 @@ impl View for StreamsView {
                     .header(header)
                     .block(
                         Block::default()
-                            .borders(Borders::ALL)
+                            .borders(Borders::TOP)
                             .title(format!("Event '{}'", name))
-                            .title_alignment(tui::layout::Alignment::Left),
+                            .title_alignment(Alignment::Right),
                     )
                     .highlight_style(ctx.selected_style)
                     .widths(&[
@@ -313,27 +319,18 @@ impl View for StreamsView {
 
                 let text = Text::from(content);
 
-                if rects[1].height >= text.height() as u16 {
+                if rects[1].height >= 2 + text.height() as u16 {
                     // We lock scrolling as everything is visible.
                     self.scroll = 0;
-                } else if self.scroll > text.height() as u16 - rects[1].height + 2 {
+                } else if self.scroll > (2 + text.height() as u16) - rects[1].height {
                     // We cap how much we can scroll. It will be difficult to do that part during
                     // the refresh call as the user might have resized the terminal.
-                    self.scroll = text.height() as u16 - rects[1].height + 2;
+                    self.scroll = (2 + text.height() as u16) - rects[1].height;
                 }
-
-                debug!(
-                    ">> Top: {}, Bottom: {}, rect-Height: {}, text-Height: {}, scroll: {}",
-                    rects[1].top(),
-                    rects[1].bottom(),
-                    rects[1].height,
-                    text.height(),
-                    self.scroll,
-                );
 
                 let paragraph = Paragraph::new(text)
                     .alignment(Alignment::Left)
-                    .block(Block::default().borders(Borders::ALL))
+                    .block(Block::default().borders(Borders::BOTTOM | Borders::TOP))
                     .scroll((self.scroll, 0));
 
                 frame.render_widget(paragraph, rects[1])
@@ -420,6 +417,10 @@ impl View for StreamsView {
         }
 
         Request::Noop
+    }
+
+    fn keybindings(&self) -> &[(&str, &str)] {
+        &[]
     }
 }
 

@@ -5,7 +5,7 @@ use eventstore::ProjectionStatus;
 use futures::TryStreamExt;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use tui::layout::{Constraint, Layout};
+use tui::layout::{Constraint, Layout, Rect};
 use tui::style::{Color, Style};
 use tui::widgets::{Block, Borders, Cell, Row, Table};
 use tui::Frame;
@@ -65,11 +65,11 @@ impl View for ProjectionsViews {
 
     fn refresh(&mut self, _env: &Env) {}
 
-    fn draw(&mut self, ctx: ViewCtx, frame: &mut Frame<B>) {
+    fn draw(&mut self, ctx: ViewCtx, frame: &mut Frame<B>, area: Rect) {
         let rects = Layout::default()
-            .constraints([Constraint::Percentage(100)].as_ref())
-            .margin(3)
-            .split(frame.size());
+            .constraints([Constraint::Min(0)].as_ref())
+            .margin(2)
+            .split(area);
 
         let header_cells = HEADERS
             .iter()
@@ -132,7 +132,7 @@ impl View for ProjectionsViews {
             .header(header)
             .block(
                 Block::default()
-                    .borders(Borders::ALL)
+                    .borders(Borders::TOP)
                     .title("Projections")
                     .title_alignment(tui::layout::Alignment::Right),
             )
@@ -160,5 +160,9 @@ impl View for ProjectionsViews {
         }
 
         Request::Noop
+    }
+
+    fn keybindings(&self) -> &[(&str, &str)] {
+        &[]
     }
 }

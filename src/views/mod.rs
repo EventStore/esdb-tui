@@ -1,12 +1,14 @@
 use crossterm::event::{KeyCode, KeyEvent};
 use eventstore::ClientSettings;
+use std::collections::HashMap;
 use std::io;
 use std::io::Stdout;
 use tokio::runtime::{Handle, Runtime};
 use tui::backend::CrosstermBackend;
+use tui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use tui::style::{Color, Modifier, Style};
 use tui::text::{Span, Spans};
-use tui::widgets::{Block, Borders, Tabs};
+use tui::widgets::{Block, Borders, Paragraph, Tabs};
 use tui::Frame;
 
 pub mod dashboard;
@@ -22,6 +24,8 @@ static HEADERS: &[&'static str] = &[
     "Persistent Subscriptions",
 ];
 
+static KEYBINDINGS: &[(&'static str, &'static str)] = &[("TAB", "Next tab"), ("q", "Exit")];
+
 pub struct Context {
     runtime: Runtime,
     view_ctx: ViewCtx,
@@ -30,6 +34,7 @@ pub struct Context {
     proj_client: eventstore::ProjectionClient,
     selected_tab: usize,
     views: Vec<Box<dyn View>>,
+    default_mappings: HashMap<String, String>,
 }
 
 #[derive(Clone)]
@@ -62,7 +67,13 @@ impl Context {
             })
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
+        let default_mappings = KEYBINDINGS
+            .iter()
+            .map(|(key, label)| (key.to_string(), label.to_string()))
+            .collect();
+
         Ok(Self {
+            default_mappings,
             runtime,
             client,
             op_client,
@@ -137,7 +148,11 @@ impl Context {
     }
 
     pub fn draw(&mut self, frame: &mut Frame<B>) {
-        let size = frame.size();
+        let rects = Layout::default()
+            .constraints([Constraint::Min(10), Constraint::Length(5)])
+            .vertical_margin(0)
+            .direction(Direction::Vertical)
+            .split(frame.size());
 
         let titles = HEADERS
             .iter()
@@ -152,20 +167,44 @@ impl Context {
         let tabs = Tabs::new(titles)
             .block(
                 Block::default()
-                    .borders(Borders::ALL)
+                    .borders(Borders::TOP | Borders::LEFT | Borders::RIGHT | Borders::BOTTOM)
                     .style(Style::default().bg(Color::DarkGray))
                     .title("EventStoreDB Administration Tool")
-                    .title_alignment(tui::layout::Alignment::Right),
+                    .title_alignment(Alignment::Right),
             )
             .select(self.selected_tab)
             .style(Style::default().fg(Color::Gray))
             .highlight_style(Style::default().add_modifier(Modifier::BOLD | Modifier::REVERSED));
 
-        frame.render_widget(tabs, size);
+        frame.render_widget(tabs, rects[0]);
+
+        let mut mappings = self.default_mappings.clone();
 
         if let Some(view) = self.views.get_mut(self.selected_tab) {
-            view.draw(self.view_ctx, frame);
+            view.draw(self.view_ctx, frame, rects[0]);
+
+            for (key, value) in view.keybindings() {
+                mappings.insert(key.to_string(), value.to_string());
+            }
         }
+        let mut spans = vec![];
+
+        for (key, label) in mappings {
+            spans.push(Spans::from(vec![
+                Span::styled(key, Style::default().fg(Color::Green)),
+                Span::styled(format!(": {}", label), Style::default().fg(Color::Gray)),
+            ]));
+        }
+
+        let paragraph = Paragraph::new(spans)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .style(Style::default().bg(Color::DarkGray)),
+            )
+            .alignment(Alignment::Left);
+
+        frame.render_widget(paragraph, rects[1]);
     }
 
     pub fn init(&mut self) {
@@ -186,8 +225,9 @@ pub trait View {
     fn load(&mut self, env: &Env);
     fn unload(&mut self, env: &Env);
     fn refresh(&mut self, env: &Env);
-    fn draw(&mut self, ctx: ViewCtx, frame: &mut Frame<B>);
+    fn draw(&mut self, ctx: ViewCtx, frame: &mut Frame<B>, area: Rect);
     fn on_key_pressed(&mut self, key: KeyCode) -> Request;
+    fn keybindings(&self) -> &[(&str, &str)];
 }
 
 #[derive(Debug, Copy, Clone)]
