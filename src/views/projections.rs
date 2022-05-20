@@ -1,14 +1,13 @@
-use crate::views::{Context, Env, Request, ViewCtx, B};
+use crate::views::{Env, Request, ViewCtx, B};
 use crate::View;
 use crossterm::event::KeyCode;
 use eventstore::ProjectionStatus;
 use futures::TryStreamExt;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use tui::backend::Backend;
 use tui::layout::{Constraint, Layout};
-use tui::style::{Color, Modifier, Style};
-use tui::widgets::{Block, Borders, Cell, Row, Table, TableState};
+use tui::style::{Color, Style};
+use tui::widgets::{Block, Borders, Cell, Row, Table};
 use tui::Frame;
 
 static HEADERS: &[&'static str] = &[
@@ -26,7 +25,6 @@ static HEADERS: &[&'static str] = &[
 
 #[derive(Default)]
 pub struct ProjectionsViews {
-    table_state: TableState,
     model: Model,
 }
 
@@ -63,9 +61,9 @@ impl View for ProjectionsViews {
             .unwrap();
     }
 
-    fn unload(&mut self, env: &Env) {}
+    fn unload(&mut self, _env: &Env) {}
 
-    fn refresh(&mut self, env: &Env) {}
+    fn refresh(&mut self, _env: &Env) {}
 
     fn draw(&mut self, ctx: ViewCtx, frame: &mut Frame<B>) {
         let rects = Layout::default()

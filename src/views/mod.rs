@@ -2,9 +2,8 @@ use crossterm::event::{KeyCode, KeyEvent};
 use eventstore::ClientSettings;
 use std::io;
 use std::io::Stdout;
-use std::time::{Duration, Instant};
 use tokio::runtime::{Handle, Runtime};
-use tui::backend::{Backend, CrosstermBackend};
+use tui::backend::CrosstermBackend;
 use tui::style::{Color, Modifier, Style};
 use tui::text::{Span, Spans};
 use tui::widgets::{Block, Borders, Tabs};
@@ -31,7 +30,6 @@ pub struct Context {
     proj_client: eventstore::ProjectionClient,
     selected_tab: usize,
     views: Vec<Box<dyn View>>,
-    time: Instant,
 }
 
 #[derive(Clone)]
@@ -70,7 +68,6 @@ impl Context {
             op_client,
             proj_client,
             selected_tab: 0,
-            time: Instant::now(),
             views: vec![
                 Box::new(dashboard::DashboardView::default()),
                 Box::new(stream_browser::StreamsView::default()),
@@ -81,10 +78,6 @@ impl Context {
                 normal_style: Style::default().add_modifier(Modifier::REVERSED),
             },
         })
-    }
-
-    pub fn runtime(&self) -> &Runtime {
-        &self.runtime
     }
 
     fn mk_env(&self) -> Env {

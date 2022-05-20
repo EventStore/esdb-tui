@@ -1,13 +1,11 @@
-use crate::views::{Context, Env, Request, View, ViewCtx, B};
+use crate::views::{Env, Request, View, ViewCtx, B};
 use crossterm::event::KeyCode;
 use eventstore::operations::Stats;
-use futures::TryStreamExt;
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::sync::RwLock;
-use tui::backend::Backend;
 use tui::layout::{Constraint, Layout};
 use tui::style::{Color, Style};
 use tui::widgets::{Block, Borders, Cell, Row, Table, TableState};
@@ -98,11 +96,11 @@ impl View for DashboardView {
         self.refresh(env);
     }
 
-    fn unload(&mut self, env: &Env) {}
+    fn unload(&mut self, _env: &Env) {}
 
     fn refresh(&mut self, env: &Env) {
         let client = env.op_client.clone();
-        let mut state = self.stats.clone();
+        let state = self.stats.clone();
 
         self.model = env
             .handle

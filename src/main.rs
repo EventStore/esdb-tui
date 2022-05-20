@@ -5,33 +5,19 @@ extern crate log;
 
 use crate::views::{Context, Request, View, B};
 use crossterm::{
-    event::{DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
+    event::Event,
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use eventstore::{ClientSettings, ProjectionStatus, StreamPosition};
-use futures::{channel::mpsc::UnboundedReceiver, SinkExt, StreamExt};
-use futures::{channel::mpsc::UnboundedSender, TryStreamExt};
-use itertools::Itertools;
+use eventstore::ClientSettings;
 use log::LevelFilter;
 use log4rs::config::{Appender, Logger, Root};
-use std::{collections::HashMap, sync::Arc};
 use std::{
     io,
     time::{Duration, Instant},
 };
 use structopt::StructOpt;
-use tokio::{runtime::Runtime, sync::RwLock};
-use tui::{
-    backend::{Backend, CrosstermBackend},
-    layout::{Constraint, Layout},
-    style::{Color, Modifier, Style},
-    text::Spans,
-    widgets::{Block, Row, Table, TableState, Tabs},
-    widgets::{Borders, Cell},
-    Frame, Terminal,
-};
-use tui::{layout::Direction, text::Span};
+use tui::{backend::CrosstermBackend, Terminal};
 
 #[derive(StructOpt, Debug)]
 struct Args {

@@ -1,13 +1,11 @@
-use crate::views::{Context, Env, Request, View, ViewCtx, B};
+use crate::views::{Env, Request, View, ViewCtx, B};
 use chrono::Utc;
-use crossterm::cursor::position;
 use crossterm::event::KeyCode;
 use eventstore::{ResolvedEvent, StreamPosition};
-use tui::backend::Backend;
 use tui::layout::{Alignment, Constraint, Direction, Layout};
 use tui::style::Color::Gray;
 use tui::style::{Color, Style};
-use tui::text::{Span, Text};
+use tui::text::Text;
 use tui::widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState};
 use tui::Frame;
 
@@ -106,7 +104,7 @@ impl View for StreamsView {
             .unwrap();
     }
 
-    fn unload(&mut self, env: &Env) {
+    fn unload(&mut self, _env: &Env) {
         self.selected = 0;
         self.selected_tab = 0;
         self.scroll = 0;
@@ -250,8 +248,6 @@ impl View for StreamsView {
                     .constraints([Constraint::Max(5), Constraint::Percentage(80)].as_ref())
                     .margin(3)
                     .split(frame.size());
-
-                let stream_name = self.model.selected_stream.clone().unwrap_or_default();
 
                 let header_cells = STREAM_HEADERS
                     .iter()
