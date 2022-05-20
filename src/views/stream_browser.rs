@@ -311,7 +311,27 @@ impl View for StreamsView {
                     "<BINARY>".to_string()
                 };
 
-                let paragraph = Paragraph::new(Text::styled(content, Style::default()))
+                let text = Text::from(content);
+
+                if rects[1].height >= text.height() as u16 {
+                    // We lock scrolling as everything is visible.
+                    self.scroll = 0;
+                } else if self.scroll > text.height() as u16 - rects[1].height + 2 {
+                    // We cap how much we can scroll. It will be difficult to do that part during
+                    // the refresh call as the user might have resized the terminal.
+                    self.scroll = text.height() as u16 - rects[1].height + 2;
+                }
+
+                debug!(
+                    ">> Top: {}, Bottom: {}, rect-Height: {}, text-Height: {}, scroll: {}",
+                    rects[1].top(),
+                    rects[1].bottom(),
+                    rects[1].height,
+                    text.height(),
+                    self.scroll,
+                );
+
+                let paragraph = Paragraph::new(text)
                     .alignment(Alignment::Left)
                     .block(Block::default().borders(Borders::ALL))
                     .scroll((self.scroll, 0));
@@ -371,9 +391,7 @@ impl View for StreamsView {
                     }
                 }
                 Stage::Popup => {
-                    if self.scroll < 10 {
-                        self.scroll += 1;
-                    }
+                    self.scroll += 1;
                 }
             },
 
