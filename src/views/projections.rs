@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tui::layout::{Constraint, Layout, Rect};
 use tui::style::{Color, Style};
-use tui::widgets::{Block, Borders, Cell, Row, Table};
+use tui::widgets::{Block, Borders, Cell, Row, Table, TableState};
 use tui::Frame;
 
 static HEADERS: &[&'static str] = &[
@@ -26,6 +26,8 @@ static HEADERS: &[&'static str] = &[
 #[derive(Default)]
 pub struct ProjectionsViews {
     model: Model,
+    main_table_state: TableState,
+    selected: usize,
 }
 
 struct Model {
@@ -151,7 +153,9 @@ impl View for ProjectionsViews {
                 Constraint::Percentage(10),
             ]);
 
-        frame.render_stateful_widget(table, rects[0], &mut Default::default());
+        self.main_table_state.select(Some(self.selected));
+
+        frame.render_stateful_widget(table, rects[0], &mut self.main_table_state);
     }
 
     fn on_key_pressed(&mut self, key: KeyCode) -> Request {
@@ -159,10 +163,33 @@ impl View for ProjectionsViews {
             return Request::Exit;
         }
 
+        match key {
+            KeyCode::Char('q' | 'Q') => return Request::Exit,
+            KeyCode::Up => {
+                if !self.model.projections.is_empty() && self.selected > 0 {
+                    self.selected -= 1;
+                }
+            }
+
+            KeyCode::Down => {
+                if !self.model.projections.is_empty()
+                    && self.selected < self.model.projections.len() - 1
+                {
+                    self.selected += 1;
+                }
+            }
+
+            _ => {}
+        }
+
         Request::Noop
     }
 
     fn keybindings(&self) -> &[(&str, &str)] {
-        &[]
+        &[
+            ("↑", "Scroll up"),
+            ("↓", "Scroll down"),
+            ("Enter", "Select"),
+        ]
     }
 }
