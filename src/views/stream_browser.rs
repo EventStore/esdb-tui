@@ -420,7 +420,22 @@ impl View for StreamsView {
     }
 
     fn keybindings(&self) -> &[(&str, &str)] {
-        &[]
+        match self.stage {
+            Stage::Popup => &[("↑", "Scroll up"), ("↓", "Scroll down"), ("q", "Close")],
+            Stage::Stream => &[
+                ("↑", "Scroll up"),
+                ("↓", "Scroll down"),
+                ("Enter", "Select"),
+                ("q", "Close"),
+            ],
+            Stage::Main => &[
+                ("↑", "Scroll up"),
+                ("↓", "Scroll down"),
+                ("→", "Move right"),
+                ("← ", "Move left"),
+                ("Enter", "Select"),
+            ],
+        }
     }
 }
 

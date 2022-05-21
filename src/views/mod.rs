@@ -25,7 +25,11 @@ static HEADERS: &[&'static str] = &[
     "Persistent Subscriptions",
 ];
 
-static KEYBINDINGS: &[(&'static str, &'static str)] = &[("TAB", "Next tab"), ("q", "Exit")];
+static KEYBINDINGS: &[(&'static str, &'static str)] = &[
+    ("TAB", "Next tab"),
+    ("B/TAB", "Previous tab"),
+    ("q", "Exit"),
+];
 
 pub struct Context {
     runtime: Runtime,
