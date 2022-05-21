@@ -137,6 +137,7 @@ impl View for DashboardView {
             .iter()
             .map(|h| Cell::from(*h).style(Style::default().fg(Color::Green)));
 
+        // 4 is the height taken by borders.
         if rect.height >= self.model.queues.len() as u16 + 4 {
             self.scroll = 0;
         } else if self.scroll + rect.height >= self.model.queues.len() as u16 + 4 {
