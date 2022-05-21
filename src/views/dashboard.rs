@@ -79,6 +79,7 @@ pub struct DashboardView {
     table_state: TableState,
     model: Model,
     stats: Arc<RwLock<Option<Stats>>>,
+    scroll: u16,
 }
 
 impl Default for DashboardView {
@@ -87,6 +88,7 @@ impl Default for DashboardView {
             table_state: TableState::default(),
             model: Model::default(),
             stats: Arc::new(RwLock::new(None)),
+            scroll: 0,
         }
     }
 }
@@ -125,23 +127,44 @@ impl View for DashboardView {
     }
 
     fn draw(&mut self, ctx: ViewCtx, frame: &mut Frame<B>, area: Rect) {
-        let rects = Layout::default()
+        let rect = Layout::default()
             .constraints([Constraint::Min(0)].as_ref())
             .direction(Direction::Vertical)
             .margin(2)
-            .split(area);
+            .split(area)[0];
 
         let header_cells = HEADERS
             .iter()
             .map(|h| Cell::from(*h).style(Style::default().fg(Color::Green)));
 
+        if rect.height >= self.model.queues.len() as u16 + 4 {
+            self.scroll = 0;
+        } else if self.scroll + rect.height >= self.model.queues.len() as u16 + 4 {
+            self.scroll = (self.model.queues.len() as u16 + 4) - rect.height;
+        }
+        // } else if self.scroll as u16 + rect.height >= self.model.queues.len() as u16 {
+        //     self.scroll = self.model.queues.len() - rect.height as usize;
+        // }
+
         let mut rows = Vec::new();
-        for (name, queue) in self
+        let mut count = 0u16;
+        for (idx, (name, queue)) in self
             .model
             .queues
             .iter()
             .sorted_by(|(a, _), (b, _)| a.cmp(b))
+            .enumerate()
         {
+            if count == rect.height {
+                break;
+            }
+
+            if self.scroll > idx as u16 {
+                continue;
+            }
+
+            count += 1;
+
             let mut cells = Vec::new();
 
             cells.push(Cell::from(name.as_str()));
@@ -183,12 +206,21 @@ impl View for DashboardView {
                 Constraint::Percentage(40),
             ]);
 
-        frame.render_stateful_widget(table, rects[0], &mut self.table_state)
+        frame.render_stateful_widget(table, rect, &mut self.table_state)
     }
 
     fn on_key_pressed(&mut self, key: KeyCode) -> Request {
-        if let KeyCode::Char('q' | 'Q') = key {
-            return Request::Exit;
+        match key {
+            KeyCode::Char('q' | 'Q') => return Request::Exit,
+            KeyCode::Up => {
+                if self.scroll > 0 {
+                    self.scroll -= 1;
+                }
+            }
+            KeyCode::Down => {
+                self.scroll += 1;
+            }
+            _ => {}
         }
 
         Request::Noop
