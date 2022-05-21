@@ -142,9 +142,6 @@ impl View for DashboardView {
         } else if self.scroll + rect.height >= self.model.queues.len() as u16 + 4 {
             self.scroll = (self.model.queues.len() as u16 + 4) - rect.height;
         }
-        // } else if self.scroll as u16 + rect.height >= self.model.queues.len() as u16 {
-        //     self.scroll = self.model.queues.len() - rect.height as usize;
-        // }
 
         let mut rows = Vec::new();
         let mut count = 0u16;
