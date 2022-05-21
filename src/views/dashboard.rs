@@ -225,6 +225,6 @@ impl View for DashboardView {
     }
 
     fn keybindings(&self) -> &[(&str, &str)] {
-        &[]
+        &[("↑", "Scroll up"), ("↓", "Scroll down")]
     }
 }

@@ -1,5 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent};
 use eventstore::ClientSettings;
+use itertools::Itertools;
 use std::collections::HashMap;
 use std::io;
 use std::io::Stdout;
@@ -187,16 +188,43 @@ impl Context {
                 mappings.insert(key.to_string(), value.to_string());
             }
         }
-        let mut spans = vec![];
 
-        for (key, label) in mappings {
-            spans.push(Spans::from(vec![
-                Span::styled(key, Style::default().fg(Color::Green)),
-                Span::styled(format!(": {}", label), Style::default().fg(Color::Gray)),
-            ]));
+        let max_key = mappings
+            .keys()
+            .map(|k| k.chars().count())
+            .max()
+            .unwrap_or_default();
+
+        let mut parts = vec![Vec::new(), Vec::new(), Vec::new()];
+        let mut count = 0usize;
+
+        for (mut key, mut label) in mappings.into_iter().sorted_by_key(|k| k.0.clone()).rev() {
+            let key_count = key.chars().count();
+            let idx = count % 3;
+
+            if key_count < max_key {
+                for _ in 0..max_key - key_count {
+                    key.insert(0, ' ');
+                }
+            }
+
+            let key_count = key.chars().count();
+            let label_count = label.chars().count();
+
+            for _ in 0..(20 - (key_count + label_count)) {
+                label.push(' ');
+            }
+
+            parts[idx].push(Span::styled(key, Style::default().fg(Color::Green)));
+            parts[idx].push(Span::styled(
+                format!(" {}", label),
+                Style::default().fg(Color::Gray),
+            ));
+
+            count += 1;
         }
 
-        let paragraph = Paragraph::new(spans)
+        let paragraph = Paragraph::new(parts.into_iter().map(|xs| Spans(xs)).collect::<Vec<_>>())
             .block(
                 Block::default()
                     .borders(Borders::ALL)
