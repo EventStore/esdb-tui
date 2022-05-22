@@ -16,7 +16,7 @@ enum Stage {
     Main,
     Stream,
     StreamPreview,
-    Popup,
+    Search,
 }
 
 pub struct StreamsView {
@@ -120,13 +120,24 @@ impl View for StreamsView {
             self.model.selected_stream_events = env
                 .handle
                 .block_on(async move {
-                    let options = eventstore::ReadStreamOptions::default()
-                        .max_count(20)
-                        .resolve_link_tos()
-                        .position(StreamPosition::End)
-                        .backwards();
+                    let mut stream = if stream_name.trim() == "$all" {
+                        let options = eventstore::ReadAllOptions::default()
+                            .max_count(20)
+                            .resolve_link_tos()
+                            .position(StreamPosition::End)
+                            .backwards();
 
-                    let mut stream = client.read_stream(stream_name, &options).await?;
+                        client.read_all(&options).await?
+                    } else {
+                        let options = eventstore::ReadStreamOptions::default()
+                            .max_count(20)
+                            .resolve_link_tos()
+                            .position(StreamPosition::End)
+                            .backwards();
+
+                        client.read_stream(stream_name, &options).await?
+                    };
+
                     let mut events = Vec::new();
 
                     while let Some(event) = stream.next().await? {
@@ -141,7 +152,7 @@ impl View for StreamsView {
 
     fn draw(&mut self, ctx: ViewCtx, frame: &mut Frame<B>, area: Rect) {
         match self.stage {
-            Stage::Main | Stage::Popup => {
+            Stage::Main | Stage::Search => {
                 let rects = Layout::default()
                     .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
                     .direction(Direction::Horizontal)
@@ -193,7 +204,7 @@ impl View for StreamsView {
                         &mut self.main_table_states[idx],
                     );
 
-                    if let Stage::Popup = self.stage {
+                    if let Stage::Search = self.stage {
                         let block = Block::default()
                             .title("Search")
                             .borders(Borders::ALL)
@@ -244,13 +255,11 @@ impl View for StreamsView {
                 let mut rows = Vec::new();
 
                 for event in self.model.selected_stream_events.iter() {
-                    let event = event.get_original_event();
+                    let rev = event.get_original_event().revision;
+                    let event = event.event.as_ref().unwrap();
                     let mut cols = Vec::new();
 
-                    cols.push(
-                        Cell::from(event.revision.to_string())
-                            .style(Style::default().fg(Color::Gray)),
-                    );
+                    cols.push(Cell::from(rev.to_string()).style(Style::default().fg(Color::Gray)));
 
                     let name = format!("{}@{}", event.revision, event.stream_id);
                     cols.push(Cell::from(name).style(Style::default().fg(Color::Gray)));
@@ -378,7 +387,7 @@ impl View for StreamsView {
     }
 
     fn on_key_pressed(&mut self, key: KeyCode) -> Request {
-        if self.stage == Stage::Popup {
+        if self.stage == Stage::Search {
             match key {
                 KeyCode::Esc => self.stage = Stage::Main,
                 KeyCode::Backspace => {
@@ -388,6 +397,7 @@ impl View for StreamsView {
                     self.stage = Stage::Stream;
                     self.model.selected_stream =
                         Some(std::mem::replace(&mut self.buffer, Default::default()));
+                    return Request::Refresh;
                 }
                 KeyCode::Char(c) if c.is_ascii() => self.buffer.push(c),
                 _ => {}
@@ -400,7 +410,7 @@ impl View for StreamsView {
             KeyCode::Char('q' | 'Q') => {
                 return match self.stage {
                     Stage::Main => Request::Exit,
-                    Stage::Popup => Request::Noop,
+                    Stage::Search => Request::Noop,
                     Stage::Stream => {
                         self.stage = Stage::Main;
                         Request::Noop
@@ -415,7 +425,7 @@ impl View for StreamsView {
 
             KeyCode::Char('/') => {
                 if self.stage == Stage::Main {
-                    self.stage = Stage::Popup;
+                    self.stage = Stage::Search;
                 }
             }
             KeyCode::Left | KeyCode::Right => {
@@ -493,7 +503,7 @@ impl View for StreamsView {
                 ("Enter", "Select"),
                 ("q", "Close"),
             ],
-            Stage::Main | Stage::Popup => &[
+            Stage::Main | Stage::Search => &[
                 ("↑", "Scroll up"),
                 ("↓", "Scroll down"),
                 ("→", "Move right"),
