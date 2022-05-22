@@ -1,9 +1,11 @@
 use crate::views::{centered_rect, Env, Request, View, ViewCtx, B};
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use crossterm::event::KeyCode;
-use eventstore::{ResolvedEvent, StreamPosition};
+use eventstore::{RecordedEvent, ResolvedEvent, StreamPosition};
+use std::ops::Add;
+use std::time::{Duration, SystemTime};
 use tui::layout::{Alignment, Constraint, Direction, Layout, Rect};
-use tui::style::{Color, Style};
+use tui::style::{Color, Modifier, Style};
 use tui::text::Text;
 use tui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, TableState};
 use tui::Frame;
@@ -208,8 +210,8 @@ impl View for StreamsView {
                         let block = Block::default()
                             .title("Search")
                             .borders(Borders::ALL)
-                            .style(Style::default().bg(Color::Blue));
-                        let area = centered_rect(40, 20, frame.size());
+                            .style(Style::default().add_modifier(Modifier::REVERSED));
+                        let area = centered_rect(40, 15, frame.size());
                         frame.render_widget(Clear, area);
                         frame.render_widget(block, area);
 
@@ -268,7 +270,8 @@ impl View for StreamsView {
                             .style(Style::default().fg(Color::Gray)),
                     );
                     cols.push(
-                        Cell::from(Utc::now().to_string()).style(Style::default().fg(Color::Gray)),
+                        Cell::from(created_date(event).to_string())
+                            .style(Style::default().fg(Color::Gray)),
                     );
 
                     rows.push(Row::new(cols));
@@ -330,7 +333,8 @@ impl View for StreamsView {
                         .style(Style::default().fg(Color::Gray)),
                 );
                 cols.push(
-                    Cell::from(Utc::now().to_string()).style(Style::default().fg(Color::Gray)),
+                    Cell::from(created_date(target_event).to_string())
+                        .style(Style::default().fg(Color::Gray)),
                 );
 
                 rows.push(Row::new(cols));
@@ -528,4 +532,10 @@ async fn read_stream_next(
         }
         Ok(v) => Ok(v),
     }
+}
+
+fn created_date(event: &RecordedEvent) -> DateTime<Utc> {
+    let ticks: u64 = event.metadata.get("created").unwrap().parse().unwrap();
+    let secs = ticks / 10_000_000;
+    SystemTime::UNIX_EPOCH.add(Duration::from_secs(secs)).into()
 }
