@@ -1,4 +1,4 @@
-use crate::views::{Env, Request, View, ViewCtx, B};
+use crate::views::{centered_rect, Env, Request, View, ViewCtx, B};
 use chrono::Utc;
 use crossterm::event::KeyCode;
 use eventstore::{ResolvedEvent, StreamPosition};
@@ -6,7 +6,7 @@ use tui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use tui::style::Color::Gray;
 use tui::style::{Color, Style};
 use tui::text::Text;
-use tui::widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState};
+use tui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, TableState};
 use tui::Frame;
 
 static HEADERS: &[&'static str] = &["Recently Created Streams", "Recently Changed Streams"];
@@ -16,6 +16,7 @@ static STREAM_HEADERS: &[&'static str] = &["Event #", "Name", "Type", "Created D
 enum Stage {
     Main,
     Stream,
+    StreamPreview,
     Popup,
 }
 
@@ -139,7 +140,7 @@ impl View for StreamsView {
 
     fn draw(&mut self, ctx: ViewCtx, frame: &mut Frame<B>, area: Rect) {
         match self.stage {
-            Stage::Main => {
+            Stage::Main | Stage::Popup => {
                 let rects = Layout::default()
                     .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
                     .direction(Direction::Horizontal)
@@ -190,6 +191,16 @@ impl View for StreamsView {
                         rects[idx],
                         &mut self.main_table_states[idx],
                     );
+
+                    if let Stage::Popup = self.stage {
+                        let block = Block::default()
+                            .title("Search")
+                            .borders(Borders::ALL)
+                            .style(Style::default().bg(Color::Blue));
+                        let area = centered_rect(60, 20, frame.size());
+                        frame.render_widget(Clear, area);
+                        frame.render_widget(block, area);
+                    }
                 }
             }
             Stage::Stream => {
@@ -249,7 +260,7 @@ impl View for StreamsView {
 
                 frame.render_stateful_widget(table, rects[0], &mut self.stream_table_state);
             }
-            Stage::Popup => {
+            Stage::StreamPreview => {
                 let rects = Layout::default()
                     .constraints([Constraint::Length(4), Constraint::Min(0)].as_ref())
                     .margin(2)
@@ -343,11 +354,15 @@ impl View for StreamsView {
             KeyCode::Char('q' | 'Q') => {
                 return match self.stage {
                     Stage::Main => Request::Exit,
+                    Stage::Popup => {
+                        self.stage = Stage::Main;
+                        Request::Noop
+                    }
                     Stage::Stream => {
                         self.stage = Stage::Main;
                         Request::Noop
                     }
-                    Stage::Popup => {
+                    Stage::StreamPreview => {
                         self.scroll = 0;
                         self.stage = Stage::Stream;
                         Request::Noop
@@ -355,13 +370,18 @@ impl View for StreamsView {
                 }
             }
 
+            KeyCode::Char('/') => {
+                if self.stage == Stage::Main {
+                    self.stage = Stage::Popup;
+                }
+            }
             KeyCode::Left | KeyCode::Right => {
                 self.selected_tab = (self.selected_tab + 1) % 2;
                 self.selected = 0;
             }
 
             KeyCode::Up => {
-                if self.stage == Stage::Popup {
+                if self.stage == Stage::StreamPreview {
                     if self.scroll > 0 {
                         self.scroll -= 1;
                     }
@@ -387,9 +407,11 @@ impl View for StreamsView {
                         self.selected += 1;
                     }
                 }
-                Stage::Popup => {
+                Stage::StreamPreview => {
                     self.scroll += 1;
                 }
+
+                _ => {}
             },
 
             KeyCode::Enter => {
@@ -407,7 +429,7 @@ impl View for StreamsView {
 
                     return Request::Refresh;
                 } else if self.stage == Stage::Stream {
-                    self.stage = Stage::Popup;
+                    self.stage = Stage::StreamPreview;
 
                     return Request::Refresh;
                 }
@@ -421,18 +443,19 @@ impl View for StreamsView {
 
     fn keybindings(&self) -> &[(&str, &str)] {
         match self.stage {
-            Stage::Popup => &[("↑", "Scroll up"), ("↓", "Scroll down"), ("q", "Close")],
+            Stage::StreamPreview => &[("↑", "Scroll up"), ("↓", "Scroll down"), ("q", "Close")],
             Stage::Stream => &[
                 ("↑", "Scroll up"),
                 ("↓", "Scroll down"),
                 ("Enter", "Select"),
                 ("q", "Close"),
             ],
-            Stage::Main => &[
+            Stage::Main | Stage::Popup => &[
                 ("↑", "Scroll up"),
                 ("↓", "Scroll down"),
                 ("→", "Move right"),
                 ("← ", "Move left"),
+                ("/", "Search"),
                 ("Enter", "Select"),
             ],
         }
