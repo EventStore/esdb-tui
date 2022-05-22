@@ -66,8 +66,8 @@ impl Model {
     }
 }
 
-impl View for StreamsView {
-    fn load(&mut self, env: &Env) -> eventstore::Result<()> {
+impl StreamsView {
+    fn load_streams(&mut self, env: &Env) -> eventstore::Result<()> {
         let client = env.client.clone();
         self.model = env.handle.block_on(async move {
             let mut model = Model::default();
@@ -108,6 +108,12 @@ impl View for StreamsView {
 
         Ok(())
     }
+}
+
+impl View for StreamsView {
+    fn load(&mut self, env: &Env) -> eventstore::Result<()> {
+        self.load_streams(env)
+    }
 
     fn unload(&mut self, _env: &Env) {
         self.selected = 0;
@@ -119,6 +125,10 @@ impl View for StreamsView {
     }
 
     fn refresh(&mut self, env: &Env) -> eventstore::Result<()> {
+        if self.stage == Stage::StreamPreview {
+            return Ok(());
+        }
+
         if let Some(stream_name) = self.model.selected_stream.clone() {
             let client = env.client.clone();
             let result = env.handle.block_on(async move {
@@ -156,9 +166,11 @@ impl View for StreamsView {
                 }
                 Ok(xs) => self.model.selected_stream_events = xs,
             }
-        }
 
-        Ok(())
+            Ok(())
+        } else {
+            self.load_streams(env)
+        }
     }
 
     fn draw(&mut self, ctx: ViewCtx, frame: &mut Frame<B>, area: Rect) {
