@@ -3,7 +3,6 @@ use chrono::Utc;
 use crossterm::event::KeyCode;
 use eventstore::{ResolvedEvent, StreamPosition};
 use tui::layout::{Alignment, Constraint, Direction, Layout, Rect};
-use tui::style::Color::Gray;
 use tui::style::{Color, Style};
 use tui::text::Text;
 use tui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, TableState};
@@ -28,6 +27,7 @@ pub struct StreamsView {
     model: Model,
     stage: Stage,
     scroll: u16,
+    buffer: String,
 }
 
 impl Default for StreamsView {
@@ -40,6 +40,7 @@ impl Default for StreamsView {
             model: Default::default(),
             stage: Stage::Main,
             scroll: 0,
+            buffer: Default::default(),
         }
     }
 }
@@ -197,9 +198,29 @@ impl View for StreamsView {
                             .title("Search")
                             .borders(Borders::ALL)
                             .style(Style::default().bg(Color::Blue));
-                        let area = centered_rect(60, 20, frame.size());
+                        let area = centered_rect(40, 20, frame.size());
                         frame.render_widget(Clear, area);
                         frame.render_widget(block, area);
+
+                        let layout = Layout::default()
+                            .margin(2)
+                            .constraints([Constraint::Length(13), Constraint::Max(100)])
+                            .direction(Direction::Horizontal)
+                            .split(area);
+
+                        let label =
+                            Paragraph::new("Stream name: ").style(Style::default().fg(Color::Gray));
+
+                        frame.render_widget(label, layout[0]);
+
+                        let mut input = std::iter::repeat('_').take(100).collect::<String>();
+
+                        let char_count = self.buffer.chars().count();
+                        input.replace_range(..char_count, self.buffer.as_str());
+
+                        let input = Paragraph::new(input).style(Style::default().fg(Color::Gray));
+
+                        frame.render_widget(input, layout[1]);
                     }
                 }
             }
@@ -227,15 +248,19 @@ impl View for StreamsView {
                     let mut cols = Vec::new();
 
                     cols.push(
-                        Cell::from(event.revision.to_string()).style(Style::default().fg(Gray)),
+                        Cell::from(event.revision.to_string())
+                            .style(Style::default().fg(Color::Gray)),
                     );
 
                     let name = format!("{}@{}", event.revision, event.stream_id);
-                    cols.push(Cell::from(name).style(Style::default().fg(Gray)));
+                    cols.push(Cell::from(name).style(Style::default().fg(Color::Gray)));
                     cols.push(
-                        Cell::from(event.event_type.clone()).style(Style::default().fg(Gray)),
+                        Cell::from(event.event_type.clone())
+                            .style(Style::default().fg(Color::Gray)),
                     );
-                    cols.push(Cell::from(Utc::now().to_string()).style(Style::default().fg(Gray)));
+                    cols.push(
+                        Cell::from(Utc::now().to_string()).style(Style::default().fg(Color::Gray)),
+                    );
 
                     rows.push(Row::new(cols));
                 }
@@ -282,7 +307,7 @@ impl View for StreamsView {
 
                 cols.push(
                     Cell::from(event.get_original_event().revision.to_string())
-                        .style(Style::default().fg(Gray)),
+                        .style(Style::default().fg(Color::Gray)),
                 );
 
                 let name = format!(
@@ -290,11 +315,14 @@ impl View for StreamsView {
                     event.get_original_event().revision,
                     event.get_original_event().stream_id
                 );
-                cols.push(Cell::from(name.as_str()).style(Style::default().fg(Gray)));
+                cols.push(Cell::from(name.as_str()).style(Style::default().fg(Color::Gray)));
                 cols.push(
-                    Cell::from(target_event.event_type.clone()).style(Style::default().fg(Gray)),
+                    Cell::from(target_event.event_type.clone())
+                        .style(Style::default().fg(Color::Gray)),
                 );
-                cols.push(Cell::from(Utc::now().to_string()).style(Style::default().fg(Gray)));
+                cols.push(
+                    Cell::from(Utc::now().to_string()).style(Style::default().fg(Color::Gray)),
+                );
 
                 rows.push(Row::new(cols));
 
@@ -350,14 +378,29 @@ impl View for StreamsView {
     }
 
     fn on_key_pressed(&mut self, key: KeyCode) -> Request {
+        if self.stage == Stage::Popup {
+            match key {
+                KeyCode::Esc => self.stage = Stage::Main,
+                KeyCode::Backspace => {
+                    self.buffer.pop();
+                }
+                KeyCode::Enter => {
+                    self.stage = Stage::Stream;
+                    self.model.selected_stream =
+                        Some(std::mem::replace(&mut self.buffer, Default::default()));
+                }
+                KeyCode::Char(c) if c.is_ascii() => self.buffer.push(c),
+                _ => {}
+            }
+
+            return Request::Noop;
+        }
+
         match key {
             KeyCode::Char('q' | 'Q') => {
                 return match self.stage {
                     Stage::Main => Request::Exit,
-                    Stage::Popup => {
-                        self.stage = Stage::Main;
-                        Request::Noop
-                    }
+                    Stage::Popup => Request::Noop,
                     Stage::Stream => {
                         self.stage = Stage::Main;
                         Request::Noop
