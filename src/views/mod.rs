@@ -9,7 +9,7 @@ use tui::backend::CrosstermBackend;
 use tui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use tui::style::{Color, Modifier, Style};
 use tui::text::{Span, Spans};
-use tui::widgets::{Block, Borders, Paragraph, Tabs};
+use tui::widgets::{Block, Borders, Clear, Paragraph, Tabs};
 use tui::Frame;
 
 pub mod dashboard;
@@ -40,6 +40,7 @@ pub struct Context {
     selected_tab: usize,
     views: Vec<Box<dyn View>>,
     default_mappings: HashMap<String, String>,
+    last_error: Option<eventstore::Error>,
 }
 
 #[derive(Clone)]
@@ -84,6 +85,7 @@ impl Context {
             op_client,
             proj_client,
             selected_tab: 0,
+            last_error: None,
             views: vec![
                 Box::new(dashboard::DashboardView::default()),
                 Box::new(stream_browser::StreamsView::default()),
@@ -108,6 +110,16 @@ impl Context {
     pub fn on_key_pressed(&mut self, key: KeyEvent) -> Request {
         let env = self.mk_env();
 
+        if self.last_error.is_some() {
+            match key.code {
+                KeyCode::Char('q' | 'Q') => {
+                    return Request::Exit;
+                }
+
+                _ => {}
+            }
+        }
+
         match key.code {
             KeyCode::Tab => {
                 if let Some(view) = self.views.get_mut(self.selected_tab) {
@@ -117,7 +129,9 @@ impl Context {
                 self.selected_tab = (self.selected_tab + 1) % TABS.len();
 
                 if let Some(view) = self.views.get_mut(self.selected_tab) {
-                    view.load(&env);
+                    if let Err(e) = view.load(&env) {
+                        self.last_error = Some(e);
+                    }
                 }
             }
             KeyCode::BackTab => {
@@ -132,7 +146,9 @@ impl Context {
                 }
 
                 if let Some(view) = self.views.get_mut(self.selected_tab) {
-                    view.load(&env);
+                    if let Err(e) = view.load(&env) {
+                        self.last_error = Some(e);
+                    }
                 }
             }
             _ => {
@@ -148,7 +164,9 @@ impl Context {
     pub fn refresh(&mut self) {
         let env = self.mk_env();
         if let Some(view) = self.views.get_mut(self.selected_tab) {
-            view.refresh(&env);
+            if let Err(e) = view.refresh(&env) {
+                self.last_error = Some(e);
+            }
         }
     }
 
@@ -237,6 +255,27 @@ impl Context {
             .alignment(Alignment::Left);
 
         frame.render_widget(paragraph, rects[1]);
+
+        if let Some(e) = self.last_error.as_ref() {
+            let block = Block::default()
+                .title("Panic")
+                .title_alignment(Alignment::Center)
+                .borders(Borders::ALL)
+                .style(Style::default().bg(Color::Black).fg(Color::Red));
+            let area = centered_rect(40, 15, frame.size());
+            frame.render_widget(Clear, area);
+            frame.render_widget(block, area);
+
+            let rect = Layout::default()
+                .margin(2)
+                .constraints([Constraint::Percentage(100)])
+                .direction(Direction::Horizontal)
+                .split(area)[0];
+
+            let label = Paragraph::new(e.to_string()).style(Style::default().fg(Color::Gray));
+
+            frame.render_widget(label, rect);
+        }
     }
 
     pub fn init(&mut self) {
@@ -248,15 +287,17 @@ impl Context {
                 proj_client: self.proj_client.clone(),
             };
 
-            view.load(&env);
+            if let Err(e) = view.load(&env) {
+                self.last_error = Some(e);
+            }
         }
     }
 }
 
 pub trait View {
-    fn load(&mut self, env: &Env);
+    fn load(&mut self, env: &Env) -> eventstore::Result<()>;
     fn unload(&mut self, env: &Env);
-    fn refresh(&mut self, env: &Env);
+    fn refresh(&mut self, env: &Env) -> eventstore::Result<()>;
     fn draw(&mut self, ctx: ViewCtx, frame: &mut Frame<B>, area: Rect);
     fn on_key_pressed(&mut self, key: KeyCode) -> Request;
     fn keybindings(&self) -> &[(&str, &str)];

@@ -7,7 +7,7 @@ use std::time::{Duration, SystemTime};
 use tui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use tui::style::{Color, Modifier, Style};
 use tui::text::Text;
-use tui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, TableState};
+use tui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, TableState, Wrap};
 use tui::Frame;
 
 static HEADERS: &[&'static str] = &["Recently Created Streams", "Recently Changed Streams"];
@@ -30,6 +30,7 @@ pub struct StreamsView {
     stage: Stage,
     scroll: u16,
     buffer: String,
+    last_error: Option<eventstore::Error>,
 }
 
 impl Default for StreamsView {
@@ -43,6 +44,7 @@ impl Default for StreamsView {
             stage: Stage::Main,
             scroll: 0,
             buffer: Default::default(),
+            last_error: None,
         }
     }
 }
@@ -65,47 +67,46 @@ impl Model {
 }
 
 impl View for StreamsView {
-    fn load(&mut self, env: &Env) {
+    fn load(&mut self, env: &Env) -> eventstore::Result<()> {
         let client = env.client.clone();
-        self.model = env
-            .handle
-            .block_on(async move {
-                let mut model = Model::default();
-                let options_1 = eventstore::ReadStreamOptions::default()
-                    .max_count(20)
-                    .position(StreamPosition::End)
-                    .backwards();
+        self.model = env.handle.block_on(async move {
+            let mut model = Model::default();
+            let options_1 = eventstore::ReadStreamOptions::default()
+                .max_count(20)
+                .position(StreamPosition::End)
+                .backwards();
 
-                let options_2 = eventstore::ReadAllOptions::default()
-                    .max_count(20)
-                    .position(StreamPosition::End)
-                    .backwards();
+            let options_2 = eventstore::ReadAllOptions::default()
+                .max_count(20)
+                .position(StreamPosition::End)
+                .backwards();
 
-                let mut stream_names = client.read_stream("$streams", &options_1).await?;
-                let mut all_stream = client.read_all(&options_2).await?;
+            let mut stream_names = client.read_stream("$streams", &options_1).await?;
+            let mut all_stream = client.read_all(&options_2).await?;
 
-                while let Some(event) = read_stream_next(&mut stream_names).await? {
-                    let (_, stream_name) =
-                        std::str::from_utf8(event.get_original_event().data.as_ref())
-                            .expect("UTF-8 formatted text")
-                            .rsplit_once('@')
-                            .unwrap_or_default();
+            while let Some(event) = read_stream_next(&mut stream_names).await? {
+                let (_, stream_name) =
+                    std::str::from_utf8(event.get_original_event().data.as_ref())
+                        .expect("UTF-8 formatted text")
+                        .rsplit_once('@')
+                        .unwrap_or_default();
 
-                    model.last_created.push(stream_name.to_string());
+                model.last_created.push(stream_name.to_string());
+            }
+
+            while let Some(event) = read_stream_next(&mut all_stream).await? {
+                let stream_id = &event.get_original_event().stream_id;
+                if model.recently_changed.contains(stream_id) {
+                    continue;
                 }
 
-                while let Some(event) = read_stream_next(&mut all_stream).await? {
-                    let stream_id = &event.get_original_event().stream_id;
-                    if model.recently_changed.contains(stream_id) {
-                        continue;
-                    }
+                model.recently_changed.push(stream_id.clone());
+            }
 
-                    model.recently_changed.push(stream_id.clone());
-                }
+            Ok::<_, eventstore::Error>(model)
+        })?;
 
-                Ok::<_, eventstore::Error>(model)
-            })
-            .unwrap();
+        Ok(())
     }
 
     fn unload(&mut self, _env: &Env) {
@@ -114,42 +115,50 @@ impl View for StreamsView {
         self.scroll = 0;
         self.stage = Stage::Main;
         self.model.clear();
+        self.last_error = None;
     }
 
-    fn refresh(&mut self, env: &Env) {
+    fn refresh(&mut self, env: &Env) -> eventstore::Result<()> {
         if let Some(stream_name) = self.model.selected_stream.clone() {
             let client = env.client.clone();
-            self.model.selected_stream_events = env
-                .handle
-                .block_on(async move {
-                    let mut stream = if stream_name.trim() == "$all" {
-                        let options = eventstore::ReadAllOptions::default()
-                            .max_count(500)
-                            .resolve_link_tos()
-                            .position(StreamPosition::End)
-                            .backwards();
+            let result = env.handle.block_on(async move {
+                let mut stream = if stream_name.trim() == "$all" {
+                    let options = eventstore::ReadAllOptions::default()
+                        .max_count(500)
+                        .resolve_link_tos()
+                        .position(StreamPosition::End)
+                        .backwards();
 
-                        client.read_all(&options).await?
-                    } else {
-                        let options = eventstore::ReadStreamOptions::default()
-                            .max_count(500)
-                            .resolve_link_tos()
-                            .position(StreamPosition::End)
-                            .backwards();
+                    client.read_all(&options).await?
+                } else {
+                    let options = eventstore::ReadStreamOptions::default()
+                        .max_count(500)
+                        .resolve_link_tos()
+                        .position(StreamPosition::End)
+                        .backwards();
 
-                        client.read_stream(stream_name, &options).await?
-                    };
+                    client.read_stream(stream_name, &options).await?
+                };
 
-                    let mut events = Vec::new();
+                let mut events = Vec::new();
 
-                    while let Some(event) = stream.next().await? {
-                        events.push(event);
-                    }
+                while let Some(event) = stream.next().await? {
+                    events.push(event);
+                }
 
-                    Ok::<_, eventstore::Error>(events)
-                })
-                .unwrap();
+                Ok::<_, eventstore::Error>(events)
+            });
+
+            match result {
+                Err(e) => {
+                    self.last_error = Some(e);
+                    self.model.selected_stream_events.clear();
+                }
+                Ok(xs) => self.model.selected_stream_events = xs,
+            }
         }
+
+        Ok(())
     }
 
     fn draw(&mut self, ctx: ViewCtx, frame: &mut Frame<B>, area: Rect) {
@@ -388,9 +397,45 @@ impl View for StreamsView {
                 frame.render_widget(paragraph, rects[1])
             }
         }
+
+        if let Some(e) = self.last_error.as_ref() {
+            let stream_name = self.model.selected_stream.clone().unwrap_or_default();
+            let block = Block::default()
+                .title("Error")
+                .title_alignment(Alignment::Center)
+                .borders(Borders::ALL)
+                .style(Style::default().bg(Color::Black).fg(Color::Yellow));
+            let area = centered_rect(40, 20, frame.size());
+            frame.render_widget(Clear, area);
+            frame.render_widget(block, area);
+
+            let rect = Layout::default()
+                .margin(2)
+                .constraints([Constraint::Percentage(100)])
+                .direction(Direction::Horizontal)
+                .split(area)[0];
+
+            let message = format!("Stream '{}': {}. Press 'q' to close.", stream_name, e);
+
+            let label = Paragraph::new(message)
+                .style(Style::default().fg(Color::Gray))
+                .wrap(Wrap { trim: false });
+
+            frame.render_widget(label, rect);
+        }
     }
 
     fn on_key_pressed(&mut self, key: KeyCode) -> Request {
+        if self.last_error.is_some() {
+            if let KeyCode::Char('q' | 'Q') = key {
+                self.last_error = None;
+                self.stage = Stage::Main;
+                self.model.selected_stream = None;
+            }
+
+            return Request::Noop;
+        }
+
         if self.stage == Stage::Search {
             match key {
                 KeyCode::Esc => self.stage = Stage::Main,

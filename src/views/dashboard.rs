@@ -94,36 +94,35 @@ impl Default for DashboardView {
 }
 
 impl View for DashboardView {
-    fn load(&mut self, env: &Env) {
-        self.refresh(env);
+    fn load(&mut self, env: &Env) -> eventstore::Result<()> {
+        self.refresh(env)
     }
 
     fn unload(&mut self, _env: &Env) {}
 
-    fn refresh(&mut self, env: &Env) {
+    fn refresh(&mut self, env: &Env) -> eventstore::Result<()> {
         let client = env.op_client.clone();
         let state = self.stats.clone();
 
-        self.model = env
-            .handle
-            .block_on(async move {
-                let mut state = state.write().await;
-                if state.is_none() {
-                    let options = eventstore::operations::StatsOptions::default()
-                        .use_metadata(true)
-                        .refresh_time(Duration::from_secs(2));
+        self.model = env.handle.block_on(async move {
+            let mut state = state.write().await;
+            if state.is_none() {
+                let options = eventstore::operations::StatsOptions::default()
+                    .use_metadata(true)
+                    .refresh_time(Duration::from_secs(2));
 
-                    *state = Some(client.stats(&options).await?);
-                }
+                *state = Some(client.stats(&options).await?);
+            }
 
-                let mut model = Model::default();
-                if let Some(stats) = state.as_mut() {
-                    model = Model::from(stats.next().await?.unwrap_or_default());
-                }
+            let mut model = Model::default();
+            if let Some(stats) = state.as_mut() {
+                model = Model::from(stats.next().await?.unwrap_or_default());
+            }
 
-                Ok::<_, eventstore::Error>(model)
-            })
-            .unwrap();
+            Ok::<_, eventstore::Error>(model)
+        })?;
+
+        Ok(())
     }
 
     fn draw(&mut self, ctx: ViewCtx, frame: &mut Frame<B>, area: Rect) {

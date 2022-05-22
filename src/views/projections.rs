@@ -49,23 +49,24 @@ impl Default for Model {
 }
 
 impl View for ProjectionsViews {
-    fn load(&mut self, env: &Env) {
+    fn load(&mut self, env: &Env) -> eventstore::Result<()> {
         let client = env.proj_client.clone();
-        self.model.projections = env
-            .handle
-            .block_on(async move {
-                client
-                    .list(&Default::default())
-                    .await?
-                    .try_collect::<Vec<_>>()
-                    .await
-            })
-            .unwrap();
+        self.model.projections = env.handle.block_on(async move {
+            client
+                .list(&Default::default())
+                .await?
+                .try_collect::<Vec<_>>()
+                .await
+        })?;
+
+        Ok(())
     }
 
     fn unload(&mut self, _env: &Env) {}
 
-    fn refresh(&mut self, _env: &Env) {}
+    fn refresh(&mut self, _env: &Env) -> eventstore::Result<()> {
+        Ok(())
+    }
 
     fn draw(&mut self, ctx: ViewCtx, frame: &mut Frame<B>, area: Rect) {
         let rects = Layout::default()
