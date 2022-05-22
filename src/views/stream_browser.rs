@@ -124,7 +124,7 @@ impl View for StreamsView {
                 .block_on(async move {
                     let mut stream = if stream_name.trim() == "$all" {
                         let options = eventstore::ReadAllOptions::default()
-                            .max_count(20)
+                            .max_count(500)
                             .resolve_link_tos()
                             .position(StreamPosition::End)
                             .backwards();
@@ -132,7 +132,7 @@ impl View for StreamsView {
                         client.read_all(&options).await?
                     } else {
                         let options = eventstore::ReadStreamOptions::default()
-                            .max_count(20)
+                            .max_count(500)
                             .resolve_link_tos()
                             .position(StreamPosition::End)
                             .backwards();
@@ -398,6 +398,7 @@ impl View for StreamsView {
                     self.buffer.pop();
                 }
                 KeyCode::Enter => {
+                    self.selected = 0;
                     self.stage = Stage::Stream;
                     self.model.selected_stream =
                         Some(std::mem::replace(&mut self.buffer, Default::default()));
@@ -417,6 +418,7 @@ impl View for StreamsView {
                     Stage::Search => Request::Noop,
                     Stage::Stream => {
                         self.stage = Stage::Main;
+                        self.selected = 0;
                         Request::Noop
                     }
                     Stage::StreamPreview => {
