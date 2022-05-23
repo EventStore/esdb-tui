@@ -10,7 +10,7 @@ tui = "0.18"
 crossterm = "*"
 eventstore = "2.1"
 structopt = "0.3"
-tokio = { version = "1", features = ["rt-multi-thread", "time", "sync"]}
+tokio = { version = "1", features = ["rt-multi-thread", "time", "sync"] }
 futures = "*"
 itertools = "*"
 log = "*"

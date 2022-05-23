@@ -385,7 +385,29 @@ impl View for StreamsView {
                         serde_json::from_slice::<serde_json::Value>(target_event.data.as_ref())
                             .unwrap();
 
-                    serde_json::to_string_pretty(&json).unwrap()
+                    let content = serde_json::to_string_pretty(&json).unwrap();
+                    let line_count = content.lines().count();
+                    let num_width = line_count.to_string().chars().count();
+
+                    let mut buffer = String::new();
+
+                    for (idx, line) in content.lines().enumerate() {
+                        let line_num = idx + 1;
+                        let line_num_count = line_num.to_string().chars().count();
+
+                        for _ in 0..num_width - line_num_count {
+                            buffer.push(' ');
+                        }
+
+                        buffer.push_str(format!("{} | ", line_num).as_str());
+                        buffer.push_str(line);
+
+                        if line_num != line_count {
+                            buffer.push('\n');
+                        }
+                    }
+
+                    buffer
                 } else {
                     "<BINARY>".to_string()
                 };
