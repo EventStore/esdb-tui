@@ -16,4 +16,5 @@ itertools = "*"
 log = "*"
 log4rs = { version = "*", features = ["file_appender"] }
 chrono = "*"
+serde = "*"
 serde_json = "*"

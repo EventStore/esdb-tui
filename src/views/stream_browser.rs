@@ -1,4 +1,4 @@
-use crate::views::{centered_rect, Env, Request, View, ViewCtx, B};
+use crate::views::{centered_rect, render_line_numbers, Env, Request, View, ViewCtx, B};
 use chrono::{DateTime, Utc};
 use crossterm::event::KeyCode;
 use eventstore::{RecordedEvent, ResolvedEvent, StreamPosition};
@@ -386,28 +386,7 @@ impl View for StreamsView {
                             .unwrap();
 
                     let content = serde_json::to_string_pretty(&json).unwrap();
-                    let line_count = content.lines().count();
-                    let num_width = line_count.to_string().chars().count();
-
-                    let mut buffer = String::new();
-
-                    for (idx, line) in content.lines().enumerate() {
-                        let line_num = idx + 1;
-                        let line_num_count = line_num.to_string().chars().count();
-
-                        for _ in 0..num_width - line_num_count {
-                            buffer.push(' ');
-                        }
-
-                        buffer.push_str(format!("{} | ", line_num).as_str());
-                        buffer.push_str(line);
-
-                        if line_num != line_count {
-                            buffer.push('\n');
-                        }
-                    }
-
-                    buffer
+                    render_line_numbers(content.as_str())
                 } else {
                     "<BINARY>".to_string()
                 };
