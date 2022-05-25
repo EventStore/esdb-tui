@@ -7,7 +7,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tui::layout::{Alignment, Constraint, Direction, Layout, Rect};
-use tui::style::{Color, Style};
+use tui::style::{Color, Modifier, Style};
 use tui::widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState};
 use tui::Frame;
 
@@ -171,7 +171,7 @@ impl ProjectionsViews {
             .split(area);
 
         let proj = &self.model.selected_projection.as_ref().unwrap();
-        let proj_name = &self.model.projections[self.selected].name.as_str();
+        let proj_status = &self.model.projections[self.selected];
 
         let content = render_line_numbers(proj.query.as_str());
 
@@ -182,11 +182,79 @@ impl ProjectionsViews {
 
         frame.render_widget(query, rects[0]);
 
-        let table = Table::new(vec![])
+        let (events_processed, rate) = if let Some(last_time) = self.model.last_time {
+            let last = self
+                .model
+                .last_metrics
+                .get(&proj_status.name.clone())
+                .copied()
+                .unwrap_or_default();
+            let events_processed = proj_status.events_processed_after_restart - last;
+            let now = self.model.instant.elapsed();
+            let rate = events_processed as f32 / (now.as_secs_f32() - last_time.as_secs_f32());
+
+            (events_processed, rate)
+        } else {
+            (0, 0f32)
+        };
+
+        let mut rows = Vec::<Row>::new();
+
+        rows.push(Row::new(vec![
+            Cell::from("Events/sec"),
+            Cell::from(rate.to_string()),
+        ]));
+        rows.push(Row::new(vec![
+            Cell::from("Buffered events"),
+            Cell::from(proj_status.buffered_events.to_string()),
+        ]));
+        rows.push(Row::new(vec![
+            Cell::from("Events processed"),
+            Cell::from(events_processed.to_string()),
+        ]));
+        rows.push(Row::new(vec![
+            Cell::from("Partitions cached"),
+            Cell::from(proj_status.partitions_cached.to_string()),
+        ]));
+        rows.push(Row::new(vec![
+            Cell::from("Reads in-progress"),
+            Cell::from(proj_status.reads_in_progress.to_string()),
+        ]));
+        rows.push(Row::new(vec![
+            Cell::from("Writes in-progress"),
+            Cell::from(proj_status.writes_in_progress.to_string()),
+        ]));
+        rows.push(Row::new(vec![Cell::from("Write queue"), Cell::from("0")]));
+        rows.push(Row::new(vec![
+            Cell::from("Write queue (chkp)"),
+            Cell::from("0"),
+        ]));
+        rows.push(Row::new(vec![
+            Cell::from("Checkpoint status"),
+            Cell::from(proj_status.checkpoint_status.as_str()),
+        ]));
+        rows.push(Row::new(vec![
+            Cell::from("Position"),
+            Cell::from(proj_status.position.as_str()),
+        ]));
+        rows.push(Row::new(vec![
+            Cell::from("Last checkpoint"),
+            Cell::from(proj_status.last_checkpoint.as_str()),
+        ]));
+        rows.push(Row::new(vec![
+            Cell::from("Results").style(Style::default().add_modifier(Modifier::BOLD)),
+            Cell::from(""),
+        ]));
+        rows.push(Row::new(vec![
+            Cell::from("State").style(Style::default().add_modifier(Modifier::BOLD)),
+            Cell::from(""),
+        ]));
+
+        let table = Table::new(rows)
             .block(
                 Block::default()
                     .borders(Borders::TOP | Borders::BOTTOM)
-                    .title(*proj_name)
+                    .title(proj_status.name.as_str())
                     .title_alignment(Alignment::Right),
             )
             .highlight_style(ctx.selected_style)
