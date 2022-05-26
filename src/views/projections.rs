@@ -1,11 +1,10 @@
+use crate::models::{Projection, Projections};
 use crate::views::{render_line_numbers, Env, Request, ViewCtx, B};
 use crate::View;
 use crossterm::event::KeyCode;
-use eventstore::{ProjectionStatus, ReadStreamOptions, StreamPosition};
+use eventstore::{ReadStreamOptions, StreamPosition};
 use futures::TryStreamExt;
 use serde::Deserialize;
-use std::collections::HashMap;
-use std::time::{Duration, Instant};
 use tui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use tui::style::{Color, Modifier, Style};
 use tui::widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState};
@@ -44,31 +43,11 @@ struct ProjectionDetails {
 
 #[derive(Default)]
 pub struct ProjectionsViews {
-    model: Model,
+    model: Projections,
     main_table_state: TableState,
     selected: usize,
     stage: Stage,
     scroll: u16,
-}
-
-struct Model {
-    projections: Vec<ProjectionStatus>,
-    last_metrics: HashMap<String, i64>,
-    last_time: Option<Duration>,
-    instant: Instant,
-    selected_projection: Option<ProjectionDetails>,
-}
-
-impl Default for Model {
-    fn default() -> Self {
-        Self {
-            projections: vec![],
-            last_metrics: Default::default(),
-            last_time: None,
-            instant: Instant::now(),
-            selected_projection: Default::default(),
-        }
-    }
 }
 
 impl ProjectionsViews {
@@ -84,50 +63,8 @@ impl ProjectionsViews {
 
         let mut rows: Vec<Row> = Vec::new();
 
-        for proj in self.model.projections.iter() {
-            let mut cells = Vec::new();
-
-            cells.push(Cell::from(proj.name.as_str()));
-            cells.push(Cell::from(proj.status.as_str()));
-            if proj.checkpoint_status.is_empty() {
-                cells.push(Cell::from("-"));
-            } else {
-                cells.push(Cell::from(proj.checkpoint_status.as_str()));
-            }
-            cells.push(Cell::from(proj.mode.as_str()));
-            cells.push(Cell::from(format!("{:.1}%", proj.progress)));
-            cells.push(Cell::from(format!(
-                "{} / {}",
-                proj.reads_in_progress, proj.writes_in_progress
-            )));
-            cells.push(Cell::from(proj.buffered_events.to_string()));
-            cells.push(Cell::from(proj.partitions_cached.to_string()));
-
-            if let Some(last_time) = self.model.last_time {
-                let last = self
-                    .model
-                    .last_metrics
-                    .get(&proj.name)
-                    .copied()
-                    .unwrap_or_default();
-                let events_processed = proj.events_processed_after_restart - last;
-                let now = self.model.instant.elapsed();
-                let rate = events_processed as f32 / (now.as_secs_f32() - last_time.as_secs_f32());
-                cells.push(Cell::from(format!("{:.1}", rate)));
-                cells.push(Cell::from(events_processed.to_string()));
-                self.model
-                    .last_metrics
-                    .insert(proj.name.clone(), proj.events_processed_after_restart);
-            } else {
-                cells.push(Cell::from("0.0"));
-                cells.push(Cell::from("0"));
-                self.model
-                    .last_metrics
-                    .insert(proj.name.clone(), proj.events_processed_after_restart);
-            }
-
-            rows.push(Row::new(cells));
-            self.model.last_time = Some(self.model.instant.elapsed());
+        for proj in self.model.list() {
+            rows.push(Row::new(main_proj_mapping(proj)));
         }
 
         let header = Row::new(header_cells)
@@ -170,9 +107,7 @@ impl ProjectionsViews {
             .direction(Direction::Horizontal)
             .split(area);
 
-        let proj = &self.model.selected_projection.as_ref().unwrap();
-        let proj_status = &self.model.projections[self.selected];
-
+        let proj = self.model.by_idx(self.selected).unwrap();
         let content = render_line_numbers(proj.query.as_str());
 
         let query = Paragraph::new(content)
@@ -182,79 +117,11 @@ impl ProjectionsViews {
 
         frame.render_widget(query, rects[0]);
 
-        let (events_processed, rate) = if let Some(last_time) = self.model.last_time {
-            let last = self
-                .model
-                .last_metrics
-                .get(&proj_status.name.clone())
-                .copied()
-                .unwrap_or_default();
-            let events_processed = proj_status.events_processed_after_restart - last;
-            let now = self.model.instant.elapsed();
-            let rate = events_processed as f32 / (now.as_secs_f32() - last_time.as_secs_f32());
-
-            (events_processed, rate)
-        } else {
-            (0, 0f32)
-        };
-
-        let mut rows = Vec::<Row>::new();
-
-        rows.push(Row::new(vec![
-            Cell::from("Events/sec"),
-            Cell::from(rate.to_string()),
-        ]));
-        rows.push(Row::new(vec![
-            Cell::from("Buffered events"),
-            Cell::from(proj_status.buffered_events.to_string()),
-        ]));
-        rows.push(Row::new(vec![
-            Cell::from("Events processed"),
-            Cell::from(events_processed.to_string()),
-        ]));
-        rows.push(Row::new(vec![
-            Cell::from("Partitions cached"),
-            Cell::from(proj_status.partitions_cached.to_string()),
-        ]));
-        rows.push(Row::new(vec![
-            Cell::from("Reads in-progress"),
-            Cell::from(proj_status.reads_in_progress.to_string()),
-        ]));
-        rows.push(Row::new(vec![
-            Cell::from("Writes in-progress"),
-            Cell::from(proj_status.writes_in_progress.to_string()),
-        ]));
-        rows.push(Row::new(vec![Cell::from("Write queue"), Cell::from("0")]));
-        rows.push(Row::new(vec![
-            Cell::from("Write queue (chkp)"),
-            Cell::from("0"),
-        ]));
-        rows.push(Row::new(vec![
-            Cell::from("Checkpoint status"),
-            Cell::from(proj_status.checkpoint_status.as_str()),
-        ]));
-        rows.push(Row::new(vec![
-            Cell::from("Position"),
-            Cell::from(proj_status.position.as_str()),
-        ]));
-        rows.push(Row::new(vec![
-            Cell::from("Last checkpoint"),
-            Cell::from(proj_status.last_checkpoint.as_str()),
-        ]));
-        rows.push(Row::new(vec![
-            Cell::from("Results").style(Style::default().add_modifier(Modifier::BOLD)),
-            Cell::from(""),
-        ]));
-        rows.push(Row::new(vec![
-            Cell::from("State").style(Style::default().add_modifier(Modifier::BOLD)),
-            Cell::from(""),
-        ]));
-
-        let table = Table::new(rows)
+        let table = Table::new(detail_proj_mapping(proj))
             .block(
                 Block::default()
                     .borders(Borders::TOP | Borders::BOTTOM)
-                    .title(proj_status.name.as_str())
+                    .title(proj.name.as_str())
                     .title_alignment(Alignment::Right),
             )
             .highlight_style(ctx.selected_style)
@@ -266,23 +133,15 @@ impl ProjectionsViews {
 
 impl View for ProjectionsViews {
     fn load(&mut self, env: &Env) -> eventstore::Result<()> {
-        let client = env.proj_client.clone();
-        self.model.projections = env.handle.block_on(async move {
-            client
-                .list(&Default::default())
-                .await?
-                .try_collect::<Vec<_>>()
-                .await
-        })?;
-
-        Ok(())
+        self.refresh(env)
     }
 
     fn unload(&mut self, _env: &Env) {}
 
     fn refresh(&mut self, env: &Env) -> eventstore::Result<()> {
-        if self.stage == Stage::Detail && self.model.selected_projection.is_none() {
-            let proj_name = self.model.projections[self.selected].name.clone();
+        if self.stage == Stage::Detail {
+            let proj = self.model.by_idx_mut(self.selected).unwrap();
+            let proj_name = proj.name.clone();
             let client = env.client.clone();
 
             let details = env.handle.block_on(async move {
@@ -308,8 +167,20 @@ impl View for ProjectionsViews {
                 Err(eventstore::Error::ResourceNotFound)
             })?;
 
-            self.model.selected_projection = Some(details);
+            proj.query = details.query;
+        } else {
+            let client = env.proj_client.clone();
+            let projections = env.handle.block_on(async move {
+                client
+                    .list(&Default::default())
+                    .await?
+                    .try_collect::<Vec<_>>()
+                    .await
+            })?;
+
+            self.model.update(projections);
         }
+
         Ok(())
     }
 
@@ -324,7 +195,7 @@ impl View for ProjectionsViews {
         if let KeyCode::Char('q' | 'Q') = key {
             if self.stage == Stage::Detail {
                 self.stage = Stage::Main;
-                self.model.selected_projection = None;
+                self.selected = 0;
                 return Request::Noop;
             }
 
@@ -333,15 +204,13 @@ impl View for ProjectionsViews {
 
         match key {
             KeyCode::Up => {
-                if !self.model.projections.is_empty() && self.selected > 0 {
+                if self.selected > 0 {
                     self.selected -= 1;
                 }
             }
 
             KeyCode::Down => {
-                if !self.model.projections.is_empty()
-                    && self.selected < self.model.projections.len() - 1
-                {
+                if self.selected + 1 < self.model.count() {
                     self.selected += 1;
                 }
             }
@@ -373,4 +242,87 @@ impl View for ProjectionsViews {
             ],
         }
     }
+}
+
+fn main_proj_mapping(proj: &Projection) -> Vec<Cell> {
+    let mut cells = Vec::new();
+
+    cells.push(Cell::from(proj.name.as_str()));
+    cells.push(Cell::from(proj.status.as_str()));
+    if proj.checkpoint_status.is_empty() {
+        cells.push(Cell::from("-"));
+    } else {
+        cells.push(Cell::from(proj.checkpoint_status.as_str()));
+    }
+    cells.push(Cell::from(proj.mode.as_str()));
+    cells.push(Cell::from(format!("{:.1}%", proj.progress)));
+    cells.push(Cell::from(format!(
+        "{} / {}",
+        proj.reads_in_progress, proj.writes_in_progress
+    )));
+    cells.push(Cell::from(proj.buffered_events.to_string()));
+    cells.push(Cell::from(proj.partitions_cached.to_string()));
+    cells.push(Cell::from(format!("{:.1}", proj.rate)));
+    cells.push(Cell::from(proj.events_processed.to_string()));
+
+    cells
+}
+
+fn detail_proj_mapping(proj: &Projection) -> Vec<Row> {
+    let mut rows = Vec::<Row>::new();
+
+    rows.push(Row::new(vec![
+        Cell::from("Events/sec"),
+        Cell::from(proj.rate.to_string()),
+    ]));
+    rows.push(Row::new(vec![
+        Cell::from("Buffered events"),
+        Cell::from(proj.buffered_events.to_string()),
+    ]));
+    rows.push(Row::new(vec![
+        Cell::from("Events processed"),
+        Cell::from(proj.events_processed.to_string()),
+    ]));
+    rows.push(Row::new(vec![
+        Cell::from("Partitions cached"),
+        Cell::from(proj.partitions_cached.to_string()),
+    ]));
+    rows.push(Row::new(vec![
+        Cell::from("Reads in-progress"),
+        Cell::from(proj.reads_in_progress.to_string()),
+    ]));
+    rows.push(Row::new(vec![
+        Cell::from("Writes in-progress"),
+        Cell::from(proj.writes_in_progress.to_string()),
+    ]));
+    rows.push(Row::new(vec![
+        Cell::from("Write queue"),
+        Cell::from(proj.write_queue.to_string()),
+    ]));
+    rows.push(Row::new(vec![
+        Cell::from("Write queue (chkp)"),
+        Cell::from(proj.write_queue_checkpoint.to_string()),
+    ]));
+    rows.push(Row::new(vec![
+        Cell::from("Checkpoint status"),
+        Cell::from(proj.checkpoint_status.as_str()),
+    ]));
+    rows.push(Row::new(vec![
+        Cell::from("Position"),
+        Cell::from(proj.position.as_str()),
+    ]));
+    rows.push(Row::new(vec![
+        Cell::from("Last checkpoint"),
+        Cell::from(proj.last_checkpoint.as_str()),
+    ]));
+    rows.push(Row::new(vec![
+        Cell::from("Results").style(Style::default().add_modifier(Modifier::BOLD)),
+        Cell::from(proj.result.as_str()),
+    ]));
+    rows.push(Row::new(vec![
+        Cell::from("State").style(Style::default().add_modifier(Modifier::BOLD)),
+        Cell::from(proj.state.as_str()),
+    ]));
+
+    rows
 }

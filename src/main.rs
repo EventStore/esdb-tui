@@ -1,3 +1,4 @@
+mod models;
 mod views;
 
 #[macro_use]
