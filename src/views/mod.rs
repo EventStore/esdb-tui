@@ -13,6 +13,7 @@ use tui::widgets::{Block, Borders, Clear, Paragraph, Tabs};
 use tui::Frame;
 
 pub mod dashboard;
+pub mod persistent_subscriptions;
 pub mod projections;
 pub mod stream_browser;
 
@@ -90,6 +91,7 @@ impl Context {
                 Box::new(dashboard::DashboardView::default()),
                 Box::new(stream_browser::StreamsView::default()),
                 Box::new(projections::ProjectionsViews::default()),
+                Box::new(persistent_subscriptions::PersistentSubscriptionView::default()),
             ],
             view_ctx: ViewCtx {
                 selected_style: Style::default().add_modifier(Modifier::REVERSED),
@@ -295,12 +297,29 @@ impl Context {
 }
 
 pub trait View {
-    fn load(&mut self, env: &Env) -> eventstore::Result<()>;
-    fn unload(&mut self, env: &Env);
-    fn refresh(&mut self, env: &Env) -> eventstore::Result<()>;
+    fn load(&mut self, env: &Env) -> eventstore::Result<()> {
+        Ok(())
+    }
+
+    fn unload(&mut self, env: &Env) {}
+
+    fn refresh(&mut self, env: &Env) -> eventstore::Result<()> {
+        Ok(())
+    }
+
     fn draw(&mut self, ctx: ViewCtx, frame: &mut Frame<B>, area: Rect);
-    fn on_key_pressed(&mut self, key: KeyCode) -> Request;
-    fn keybindings(&self) -> &[(&str, &str)];
+
+    fn on_key_pressed(&mut self, key: KeyCode) -> Request {
+        match key {
+            KeyCode::Char('q' | 'Q') => Request::Exit,
+
+            _ => Request::Noop,
+        }
+    }
+
+    fn keybindings(&self) -> &[(&str, &str)] {
+        KEYBINDINGS
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
