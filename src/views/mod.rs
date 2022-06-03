@@ -1,6 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent};
 use eventstore::ClientSettings;
-use itertools::Itertools;
 use std::collections::HashMap;
 use std::io;
 use std::io::Stdout;
@@ -300,13 +299,13 @@ impl Context {
 }
 
 pub trait View {
-    fn load(&mut self, env: &Env) -> eventstore::Result<()> {
+    fn load(&mut self, _env: &Env) -> eventstore::Result<()> {
         Ok(())
     }
 
-    fn unload(&mut self, env: &Env) {}
+    fn unload(&mut self, _env: &Env) {}
 
-    fn refresh(&mut self, env: &Env) -> eventstore::Result<()> {
+    fn refresh(&mut self, _env: &Env) -> eventstore::Result<()> {
         Ok(())
     }
 

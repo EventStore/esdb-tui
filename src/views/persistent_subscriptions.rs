@@ -2,7 +2,7 @@ use crate::models::PersistentSubscriptions;
 use crate::views::{Env, ViewCtx};
 use crate::{Request, View, B};
 use crossterm::event::KeyCode;
-use eventstore::RevisionOrPosition;
+use eventstore::{RevisionOrPosition, StreamPosition};
 use tui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use tui::style::{Color, Modifier, Style};
 use tui::widgets::{Block, Borders, Cell, Clear, Row, Table, TableState};
@@ -51,7 +51,7 @@ pub struct PersistentSubscriptionView {
     stage: Stage,
     main_table_state: TableState,
     choices_table_state: TableState,
-    selected: usize,
+    selected: u16,
     selected_choices: u16,
     model: PersistentSubscriptions,
 }
@@ -110,7 +110,7 @@ impl PersistentSubscriptionView {
                 Constraint::Percentage(30),
             ]);
 
-        self.main_table_state.select(Some(self.selected));
+        self.main_table_state.select(Some(self.selected as usize));
 
         frame.render_stateful_widget(table, rects[0], &mut self.main_table_state);
 
@@ -165,23 +165,39 @@ impl PersistentSubscriptionView {
             .map(|h| Cell::from(*h).style(Style::default().fg(Color::Green)));
 
         let mut rows: Vec<Row> = Vec::new();
-        for (key, sub) in self.model.list() {
-            let mut cells = Vec::<Cell>::new();
+        let p = self.model.get(self.selected).unwrap();
+        let setts = p.settings.as_ref().unwrap();
 
-            rows.push(Row::new(cells));
-        }
+        let mut cells = Vec::<Cell>::new();
+
+        cells.push(Cell::from(setts.history_buffer_size.to_string()));
+        cells.push(Cell::from(setts.checkpoint_after.as_millis().to_string()));
+        cells.push(Cell::from(setts.extra_statistics.to_string()));
+        cells.push(Cell::from(setts.live_buffer_size.to_string()));
+        cells.push(Cell::from(setts.checkpoint_upper_bound.to_string()));
+        cells.push(Cell::from(setts.max_retry_count.to_string()));
+        cells.push(Cell::from(setts.message_timeout.as_millis().to_string()));
+        cells.push(Cell::from(setts.checkpoint_lower_bound.to_string()));
+        cells.push(Cell::from(setts.consumer_strategy_name.to_string()));
+        cells.push(Cell::from(setts.read_batch_size.to_string()));
+        cells.push(Cell::from(setts.resolve_link_tos.to_string()));
+        cells.push(Cell::from(display_stream_position(&setts.start_from)));
+
+        rows.push(Row::new(cells));
 
         let header = Row::new(header_cells)
             .style(ctx.normal_style)
             .height(1)
             .bottom_margin(1);
 
+        let title = format!("Subscription - {}/{}", p.stream_name, p.group_name);
+
         let table = Table::new(rows)
             .header(header)
             .block(
                 Block::default()
                     .borders(Borders::TOP)
-                    .title("Subscriptions")
+                    .title(title)
                     .title_alignment(tui::layout::Alignment::Right),
             )
             .highlight_style(ctx.selected_style)
@@ -310,5 +326,13 @@ impl View for PersistentSubscriptionView {
                 ("q", "Close"),
             ],
         }
+    }
+}
+
+fn display_stream_position(value: &StreamPosition<RevisionOrPosition>) -> String {
+    match value {
+        StreamPosition::Start => "beginning".to_string(),
+        StreamPosition::End => "end".to_string(),
+        StreamPosition::Position(value) => display_rev_or_pos(Some(value)),
     }
 }

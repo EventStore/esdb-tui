@@ -1,6 +1,5 @@
-use eventstore::{PersistentSubscriptionInfo, RevisionOrPosition};
+use eventstore::{PersistentSubscriptionInfo, PersistentSubscriptionSettings, RevisionOrPosition};
 use std::collections::BTreeMap;
-use std::time::{Duration, Instant};
 
 #[derive(Default)]
 pub struct PersistentSubscription {
@@ -15,6 +14,7 @@ pub struct PersistentSubscription {
     pub behind_by_messages: i64,
     pub behind_by_time: f64,
     pub average_items_per_second: f64,
+    pub settings: Option<PersistentSubscriptionSettings<RevisionOrPosition>>,
 }
 
 pub struct PersistentSubscriptions {
@@ -35,11 +35,22 @@ impl PersistentSubscriptions {
             entry.in_flight_messages = p.stats.total_in_flight_messages as i64;
             entry.status = p.status;
             entry.average_items_per_second = p.stats.average_per_second;
+            entry.settings = p.settings;
         }
     }
 
     pub fn list(&self) -> impl Iterator<Item = (&String, &PersistentSubscription)> {
         self.inner.iter()
+    }
+
+    pub fn get(&self, idx: u16) -> Option<&PersistentSubscription> {
+        for (i, (_, value)) in self.list().enumerate() {
+            if idx == i as u16 {
+                return Some(value);
+            }
+        }
+
+        None
     }
 }
 
