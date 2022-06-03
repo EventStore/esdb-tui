@@ -16,6 +16,21 @@ static HEADERS: &[&'static str] = &[
     "Status # of msgs / estimated time to catchup in seconds",
 ];
 
+static SETTINGS_HEADERS: &[&'static str] = &[
+    "Buffer Size",
+    "Check Point After",
+    "Extra Statistics",
+    "Live Buffer Size",
+    "Max Checkpoint Count",
+    "Max Retry Count",
+    "Message Timeout (ms)",
+    "Min Checkpoint Count",
+    "Consumer Strategy",
+    "Read Batch Size",
+    "Resolve Link Tos",
+    "Start From",
+];
+
 #[derive(Copy, Clone, Eq, PartialEq)]
 enum Stage {
     Main,
@@ -95,7 +110,54 @@ impl PersistentSubscriptionView {
         frame.render_stateful_widget(table, rects[0], &mut self.main_table_state);
     }
 
-    fn draw_detail(&mut self, ctx: ViewCtx, frame: &mut Frame<B>, area: Rect) {}
+    fn draw_detail(&mut self, ctx: ViewCtx, frame: &mut Frame<B>, area: Rect) {
+        let rects = Layout::default()
+            .constraints([Constraint::Min(0)].as_ref())
+            .margin(2)
+            .split(area);
+
+        let header_cells = SETTINGS_HEADERS
+            .iter()
+            .map(|h| Cell::from(*h).style(Style::default().fg(Color::Green)));
+
+        let mut rows: Vec<Row> = Vec::new();
+        for (key, sub) in self.model.list() {
+            let mut cells = Vec::<Cell>::new();
+
+            rows.push(Row::new(cells));
+        }
+
+        let header = Row::new(header_cells)
+            .style(ctx.normal_style)
+            .height(1)
+            .bottom_margin(1);
+
+        let table = Table::new(rows)
+            .header(header)
+            .block(
+                Block::default()
+                    .borders(Borders::TOP)
+                    .title("Subscriptions")
+                    .title_alignment(tui::layout::Alignment::Right),
+            )
+            .highlight_style(ctx.selected_style)
+            .widths(&[
+                Constraint::Percentage(8),
+                Constraint::Percentage(8),
+                Constraint::Percentage(8),
+                Constraint::Percentage(8),
+                Constraint::Percentage(8),
+                Constraint::Percentage(8),
+                Constraint::Percentage(8),
+                Constraint::Percentage(8),
+                Constraint::Percentage(8),
+                Constraint::Percentage(8),
+                Constraint::Percentage(8),
+                Constraint::Percentage(8),
+            ]);
+
+        frame.render_stateful_widget(table, rects[0], &mut Default::default());
+    }
 }
 
 fn display_rev_or_pos(value: Option<&RevisionOrPosition>) -> String {
@@ -135,5 +197,9 @@ impl View for PersistentSubscriptionView {
             Stage::Main => self.draw_main(ctx, frame, area),
             Stage::Detail => self.draw_detail(ctx, frame, area),
         }
+    }
+
+    fn on_key_pressed(&mut self, key: KeyCode) -> Request {
+        Request::Noop
     }
 }
