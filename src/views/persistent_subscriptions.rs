@@ -3,10 +3,12 @@ use crate::views::{Env, ViewCtx};
 use crate::{Request, View, B};
 use crossterm::event::KeyCode;
 use eventstore::RevisionOrPosition;
-use tui::layout::{Constraint, Layout, Rect};
-use tui::style::{Color, Style};
-use tui::widgets::{Block, Borders, Cell, Row, Table, TableState};
+use tui::layout::{Alignment, Constraint, Direction, Layout, Rect};
+use tui::style::{Color, Modifier, Style};
+use tui::widgets::{Block, Borders, Cell, Clear, Row, Table, TableState};
 use tui::Frame;
+
+use super::centered_rect;
 
 static HEADERS: &[&'static str] = &[
     "Stream/Group",
@@ -34,6 +36,7 @@ static SETTINGS_HEADERS: &[&'static str] = &[
 #[derive(Copy, Clone, Eq, PartialEq)]
 enum Stage {
     Main,
+    Choices,
     Detail,
 }
 
@@ -47,7 +50,9 @@ impl Default for Stage {
 pub struct PersistentSubscriptionView {
     stage: Stage,
     main_table_state: TableState,
+    choices_table_state: TableState,
     selected: usize,
+    selected_choices: u16,
     model: PersistentSubscriptions,
 }
 
@@ -108,6 +113,45 @@ impl PersistentSubscriptionView {
         self.main_table_state.select(Some(self.selected));
 
         frame.render_stateful_widget(table, rects[0], &mut self.main_table_state);
+
+        if self.stage == Stage::Choices {
+            let block = Block::default()
+                .title("Actions")
+                .title_alignment(Alignment::Center)
+                .borders(Borders::ALL)
+                .style(Style::default().add_modifier(Modifier::REVERSED));
+            let area = centered_rect(19, 22, frame.size());
+
+            frame.render_widget(Clear, area);
+            frame.render_widget(block, area);
+
+            let layout = Layout::default()
+                .margin(1)
+                .constraints([Constraint::Percentage(100)])
+                .direction(Direction::Vertical)
+                .split(area)[0];
+
+            let rows = vec![
+                Row::new(vec![Cell::from("WIP - Edit")]),
+                Row::new(vec![Cell::from("WIP - Delete")]),
+                Row::new(vec![Cell::from("Detail")]),
+                Row::new(vec![Cell::from("WIP - Replay Parked Messages")]),
+                Row::new(vec![Cell::from("WIP - View Parked Messages")]),
+            ];
+
+            if self.selected_choices >= rows.len() as u16 {
+                self.selected_choices = rows.len() as u16 - 1;
+            }
+
+            self.choices_table_state
+                .select(Some(self.selected_choices as usize));
+
+            let table = Table::new(rows)
+                .highlight_style(Style::default().fg(Color::Green))
+                .widths(&[Constraint::Percentage(100)]);
+
+            frame.render_stateful_widget(table, layout, &mut self.choices_table_state);
+        }
     }
 
     fn draw_detail(&mut self, ctx: ViewCtx, frame: &mut Frame<B>, area: Rect) {
@@ -194,12 +238,77 @@ impl View for PersistentSubscriptionView {
 
     fn draw(&mut self, ctx: ViewCtx, frame: &mut Frame<B>, area: Rect) {
         match self.stage {
-            Stage::Main => self.draw_main(ctx, frame, area),
+            Stage::Main | Stage::Choices => self.draw_main(ctx, frame, area),
             Stage::Detail => self.draw_detail(ctx, frame, area),
         }
     }
 
     fn on_key_pressed(&mut self, key: KeyCode) -> Request {
+        match key {
+            KeyCode::Char('q' | 'Q') => {
+                if self.stage == Stage::Choices || self.stage == Stage::Detail {
+                    self.stage = Stage::Main;
+                    self.selected = 0;
+                    self.selected_choices = 0;
+
+                    return Request::Noop;
+                }
+
+                return Request::Exit;
+            }
+
+            KeyCode::Enter => {
+                if self.stage == Stage::Main {
+                    self.stage = Stage::Choices;
+                } else if self.stage == Stage::Choices {
+                    if self.selected_choices == 2 {
+                        self.stage = Stage::Detail;
+                    }
+                }
+            }
+
+            KeyCode::Up => {
+                if self.stage == Stage::Main {
+                    if self.selected > 0 {
+                        self.selected -= 1;
+                    }
+                } else if self.stage == Stage::Choices {
+                    if self.selected_choices > 0 {
+                        self.selected_choices -= 1;
+                    }
+                }
+            }
+
+            KeyCode::Down => {
+                if self.stage == Stage::Main {
+                    self.selected += 1;
+                } else if self.stage == Stage::Choices {
+                    self.selected_choices += 1;
+                }
+            }
+
+            _ => {}
+        }
+
         Request::Noop
+    }
+
+    fn keybindings(&self) -> &[(&str, &str)] {
+        match self.stage {
+            Stage::Main => &[
+                ("↑", "Scroll up"),
+                ("↓", "Scroll down"),
+                ("Enter", "Select"),
+            ],
+
+            Stage::Detail => &[("q", "Close")],
+
+            Stage::Choices => &[
+                ("↑", "Scroll up"),
+                ("↓", "Scroll down"),
+                ("Enter", "Select"),
+                ("q", "Close"),
+            ],
+        }
     }
 }

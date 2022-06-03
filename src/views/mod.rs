@@ -222,7 +222,10 @@ impl Context {
         let mut parts = vec![Vec::new(), Vec::new(), Vec::new()];
         let mut count = 0usize;
 
-        for (mut key, mut label) in mappings.into_iter().sorted_by_key(|k| k.0.clone()).rev() {
+        let mut sorted_mappings = mappings.into_iter().collect::<Vec<_>>();
+        sorted_mappings.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+
+        for (mut key, mut label) in sorted_mappings {
             let key_count = key.chars().count();
             let idx = count % 3;
 
