@@ -21,7 +21,15 @@ impl View for MonitoringView {
     }
 
     fn refresh(&mut self, env: &Env) -> eventstore::Result<()> {
-        self.model.update();
+        let client = env.op_client.clone();
+
+        let gossip = env.handle.block_on(async move {
+            let members = client.read_gossip().await?;
+
+            Ok(members)
+        })?;
+
+        self.model.update(gossip);
 
         Ok(())
     }
@@ -33,16 +41,29 @@ impl View for MonitoringView {
         area: tui::layout::Rect,
     ) {
         let rects = Layout::default()
-            .constraints([Constraint::Min(10), Constraint::Max(5)].as_ref())
+            .constraints([Constraint::Percentage(90), Constraint::Percentage(10)].as_ref())
             .direction(Direction::Vertical)
             .margin(2)
             .split(area);
 
         let mut datasets = Vec::<Dataset>::new();
 
+        let writer_bounds = self.model.writer_checkpoint_value_bounds();
+        let writer_diff = (writer_bounds[1] - writer_bounds[0]).round();
+
+        let mut incr = 10;
+        let scale = loop {
+            if (writer_diff - incr as f64) < 0f64 {
+                break (incr / 2) as f64;
+            }
+
+            incr *= 10;
+        };
+        let writer_bounds = [writer_bounds[0] - scale, writer_bounds[1] + scale];
+
         datasets.push(
             Dataset::default()
-                .data(self.model.epoch_numbers.as_ref())
+                .data(self.model.writer_checkpoints.as_ref())
                 .marker(Marker::Dot)
                 .graph_type(GraphType::Line)
                 .style(Style::default().fg(Color::Green)),
@@ -76,8 +97,11 @@ impl View for MonitoringView {
                 Axis::default()
                     .title("Value")
                     .style(Style::default().fg(Color::White))
-                    .labels(vec![Span::raw("-20"), Span::raw("20")])
-                    .bounds([-20f64, 20f64]),
+                    .labels(vec![
+                        Span::raw((writer_bounds[0] as u64).to_string()),
+                        Span::raw((writer_bounds[1] as u64).to_string()),
+                    ])
+                    .bounds(writer_bounds),
             );
 
         frame.render_widget(chart, rects[0]);
@@ -86,7 +110,7 @@ impl View for MonitoringView {
 
         legend.push(Spans(vec![
             Span::styled(" ", Style::default().bg(Color::Green)),
-            Span::raw(" Epoch number"),
+            Span::raw(" Writer checkpoint"),
         ]));
 
         let legend = Paragraph::new(legend);
