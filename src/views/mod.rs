@@ -12,6 +12,7 @@ use tui::widgets::{Block, Borders, Clear, Paragraph, Tabs};
 use tui::Frame;
 
 pub mod dashboard;
+pub mod monitoring;
 pub mod persistent_subscriptions;
 pub mod projections;
 pub mod stream_browser;
@@ -23,6 +24,7 @@ static HEADERS: &[&'static str] = &[
     "Streams Browser",
     "Projections",
     "Persistent Subscriptions",
+    "Monitoring",
 ];
 
 static KEYBINDINGS: &[(&'static str, &'static str)] = &[
@@ -91,6 +93,7 @@ impl Context {
                 Box::new(stream_browser::StreamsView::default()),
                 Box::new(projections::ProjectionsViews::default()),
                 Box::new(persistent_subscriptions::PersistentSubscriptionView::default()),
+                Box::new(monitoring::MonitoringView::default()),
             ],
             view_ctx: ViewCtx {
                 selected_style: Style::default().add_modifier(Modifier::REVERSED),
@@ -127,7 +130,7 @@ impl Context {
                     view.unload(&env);
                 }
 
-                self.selected_tab = (self.selected_tab + 1) % TABS.len();
+                self.selected_tab = (self.selected_tab + 1) % HEADERS.len();
 
                 if let Some(view) = self.views.get_mut(self.selected_tab) {
                     if let Err(e) = view.load(&env) {
@@ -141,7 +144,7 @@ impl Context {
                 }
 
                 if self.selected_tab == 0 {
-                    self.selected_tab = TABS.len() - 1;
+                    self.selected_tab = HEADERS.len() - 1;
                 } else {
                     self.selected_tab -= 1;
                 }
@@ -323,21 +326,6 @@ pub trait View {
         KEYBINDINGS
     }
 }
-
-#[derive(Debug, Copy, Clone)]
-pub enum MainTab {
-    Dashboard,
-    StreamsBrowser,
-    Projections,
-    PersistentSubscriptions,
-}
-
-static TABS: &[MainTab] = &[
-    MainTab::Dashboard,
-    MainTab::StreamsBrowser,
-    MainTab::Projections,
-    MainTab::PersistentSubscriptions,
-];
 
 pub enum Request {
     Noop,
