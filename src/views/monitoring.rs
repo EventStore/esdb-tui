@@ -2,8 +2,8 @@ use tui::{
     layout::{Alignment, Constraint, Direction, Layout},
     style::{Color, Style},
     symbols::Marker,
-    text::Span,
-    widgets::{Axis, Block, Borders, Chart, Dataset, GraphType},
+    text::{Span, Spans},
+    widgets::{Axis, Block, Borders, Chart, Dataset, GraphType, Paragraph},
 };
 
 use crate::models::Monitoring;
@@ -33,7 +33,7 @@ impl View for MonitoringView {
         area: tui::layout::Rect,
     ) {
         let rects = Layout::default()
-            .constraints([Constraint::Percentage(80), Constraint::Percentage(20)].as_ref())
+            .constraints([Constraint::Min(10), Constraint::Max(5)].as_ref())
             .direction(Direction::Vertical)
             .margin(2)
             .split(area);
@@ -81,5 +81,16 @@ impl View for MonitoringView {
             );
 
         frame.render_widget(chart, rects[0]);
+
+        let mut legend = Vec::<Spans>::new();
+
+        legend.push(Spans(vec![
+            Span::styled(" ", Style::default().bg(Color::Green)),
+            Span::raw(" Epoch number"),
+        ]));
+
+        let legend = Paragraph::new(legend);
+
+        frame.render_widget(legend, rects[1]);
     }
 }
