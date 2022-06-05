@@ -42,6 +42,10 @@ struct Model {
 
 impl Model {
     fn from(map: HashMap<String, String>) -> Self {
+        for (key, value) in map.iter() {
+            debug!("key: {}, value: {}", key, value);
+        }
+
         if map.is_empty() {
             error!("Stats from the server are empty");
         }

@@ -236,12 +236,12 @@ dependencies = [
  "itertools",
  "log",
  "log4rs",
- "rand",
  "serde",
  "serde_json",
  "structopt",
  "tokio",
  "tui",
+ "uuid",
 ]
 
 [[package]]

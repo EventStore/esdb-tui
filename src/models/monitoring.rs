@@ -1,28 +1,66 @@
-use eventstore::operations::MemberInfo;
+use eventstore::operations::{MemberInfo, VNodeState};
+use uuid::Uuid;
+
+pub struct Leader {
+    instance_id: Uuid,
+    epoch_number: i64,
+    writer_checkpoint: i64,
+}
 
 #[derive(Default)]
 pub struct Monitoring {
     increment: usize,
-    last_epoch_number: Option<i64>,
-    last_writer_checkpoint: Option<i64>,
+    pub last_epoch_number: Option<i64>,
+    pub last_writer_checkpoint: Option<i64>,
     pub writer_checkpoints: Vec<(f64, f64)>,
+    pub leader: Option<Leader>,
+    pub out_of_sync_cluster_counter: usize,
+    pub truncation_counter: usize,
+    pub elections: usize,
+    pub no_leader_counter: usize,
 }
 
 impl Monitoring {
     pub fn update(&mut self, gossip: Vec<MemberInfo>) {
-        if self.writer_checkpoints.len() > 10 {
-            self.writer_checkpoints.remove(0);
-        }
+        // if self.writer_checkpoints.len() > 10 {
+        //     self.writer_checkpoints.remove(0);
+        // }
 
         if let Some(leader) = find_leader(&gossip) {
-            self.last_writer_checkpoint = Some(leader.writer_checkpoint);
-            self.writer_checkpoints
-                .push((self.increment as f64, leader.writer_checkpoint as f64));
-        } else {
-            if let Some(last_writer) = self.last_writer_checkpoint {
-                self.writer_checkpoints
-                    .push((self.increment as f64, last_writer as f64));
+            self.leader = Some(Leader {
+                instance_id: leader.instance_id,
+                epoch_number: leader.epoch_number,
+                writer_checkpoint: leader.writer_checkpoint,
+            });
+
+            if let Some(last_epoch) = self.last_epoch_number {
+                if last_epoch != leader.epoch_number {
+                    self.elections += 1;
+                }
             }
+
+            if let Some(last_chk) = self.last_writer_checkpoint {
+                let out_of_sync_count = gossip
+                    .iter()
+                    .filter(|m| m.state == VNodeState::Follower)
+                    .filter(|m| m.writer_checkpoint < last_chk)
+                    .count();
+
+                if out_of_sync_count > 1 {
+                    self.out_of_sync_cluster_counter += 1;
+                }
+
+                if last_chk > leader.writer_checkpoint {
+                    self.truncation_counter += 1;
+                }
+            }
+
+            self.last_writer_checkpoint = Some(leader.writer_checkpoint);
+            self.last_epoch_number = Some(leader.epoch_number);
+            // self.writer_checkpoints
+            //     .push((self.increment as f64, leader.writer_checkpoint as f64));
+        } else {
+            self.no_leader_counter += 1;
         }
 
         self.increment += 2;
