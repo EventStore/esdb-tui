@@ -1,8 +1,6 @@
 use crate::views::{Env, Request, View, ViewCtx, B};
 use crossterm::event::KeyCode;
-use eventstore::operations::Stats;
-use itertools::Itertools;
-use std::collections::HashMap;
+use eventstore::operations::{Statistics, Stats};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
@@ -20,68 +18,9 @@ static HEADERS: &[&'static str] = &[
     "Current / Last Message",
 ];
 
-#[derive(Default, Clone, Debug)]
-struct Queue {
-    avg_items_per_second: String,
-    length_current_try_peak: String,
-    current_idle_time: String,
-    length: String,
-    group_name: String,
-    length_lifetime_peak: String,
-    last_processed_message: String,
-    total_items_processed: String,
-    idle_time_percent: String,
-    queue_name: String,
-    in_progress_message: String,
-}
-
-#[derive(Default)]
-struct Model {
-    queues: HashMap<String, Queue>,
-}
-
-impl Model {
-    fn from(map: HashMap<String, String>) -> Self {
-        for (key, value) in map.iter() {
-            debug!("key: {}, value: {}", key, value);
-        }
-
-        if map.is_empty() {
-            error!("Stats from the server are empty");
-        }
-
-        let mut queues = HashMap::<String, Queue>::new();
-
-        for (key, value) in map {
-            let sections = key.split('-').collect::<Vec<&str>>();
-            if sections[1] == "queue" {
-                let queue_name = sections[2].to_string();
-                let queue = queues.entry(queue_name).or_default();
-
-                match sections[3] {
-                    "idleTimePercent" => queue.idle_time_percent = value,
-                    "queueName" => queue.queue_name = value,
-                    "avgItemsPerSecond" => queue.avg_items_per_second = value,
-                    "lengthCurrentTryPeak" => queue.length_current_try_peak = value,
-                    "currentIdleTime" => queue.current_idle_time = value,
-                    "length" => queue.length = value,
-                    "groupName" => queue.group_name = value,
-                    "lengthLifetimePeak" => queue.length_lifetime_peak = value,
-                    "inProgressMessage" => queue.in_progress_message = value,
-                    "lastProcessedMessage" => queue.last_processed_message = value,
-                    "totalItemsProcessed" => queue.total_items_processed = value,
-                    _ => {}
-                }
-            }
-        }
-
-        Self { queues }
-    }
-}
-
 pub struct DashboardView {
     table_state: TableState,
-    model: Model,
+    model: Statistics,
     stats: Arc<RwLock<Option<Stats>>>,
     scroll: u16,
 }
@@ -90,7 +29,7 @@ impl Default for DashboardView {
     fn default() -> Self {
         Self {
             table_state: TableState::default(),
-            model: Model::default(),
+            model: Default::default(),
             stats: Arc::new(RwLock::new(None)),
             scroll: 0,
         }
@@ -112,18 +51,12 @@ impl View for DashboardView {
             let mut state = state.write().await;
             if state.is_none() {
                 let options = eventstore::operations::StatsOptions::default()
-                    .use_metadata(true)
                     .refresh_time(Duration::from_secs(2));
 
                 *state = Some(client.stats(&options).await?);
             }
 
-            let mut model = Model::default();
-            if let Some(stats) = state.as_mut() {
-                model = Model::from(stats.next().await?.unwrap_or_default());
-            }
-
-            Ok::<_, eventstore::Error>(model)
+            state.as_mut().unwrap().next_statistics().await
         })?;
 
         Ok(())
@@ -141,21 +74,15 @@ impl View for DashboardView {
             .map(|h| Cell::from(*h).style(Style::default().fg(Color::Green)));
 
         // 4 is the height taken by borders.
-        if rect.height >= self.model.queues.len() as u16 + 4 {
+        if rect.height >= self.model.es.queues.len() as u16 + 4 {
             self.scroll = 0;
-        } else if self.scroll + rect.height >= self.model.queues.len() as u16 + 4 {
-            self.scroll = (self.model.queues.len() as u16 + 4) - rect.height;
+        } else if self.scroll + rect.height >= self.model.es.queues.len() as u16 + 4 {
+            self.scroll = (self.model.es.queues.len() as u16 + 4) - rect.height;
         }
 
         let mut rows = Vec::new();
         let mut count = 0u16;
-        for (idx, (name, queue)) in self
-            .model
-            .queues
-            .iter()
-            .sorted_by(|(a, _), (b, _)| a.cmp(b))
-            .enumerate()
-        {
+        for (idx, (name, queue)) in self.model.es.queues.iter().enumerate() {
             if count == rect.height {
                 break;
             }
@@ -173,9 +100,16 @@ impl View for DashboardView {
                 "{} | {}",
                 queue.length_current_try_peak, queue.length_lifetime_peak
             )));
-            cells.push(Cell::from(queue.avg_items_per_second.as_str()));
-            cells.push(Cell::from(queue.current_idle_time.as_str()));
-            cells.push(Cell::from(queue.total_items_processed.as_str()));
+
+            let current_idle_time = if let Some(value) = queue.current_idle_time.as_ref() {
+                value.as_str()
+            } else {
+                "N/A"
+            };
+
+            cells.push(Cell::from(queue.avg_items_per_second.to_string()));
+            cells.push(Cell::from(current_idle_time));
+            cells.push(Cell::from(queue.total_items_processed.to_string()));
             cells.push(Cell::from(format!(
                 "{} / {}",
                 queue.in_progress_message, queue.last_processed_message

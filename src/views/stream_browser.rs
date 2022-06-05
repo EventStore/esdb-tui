@@ -291,7 +291,7 @@ impl View for StreamsView {
                             .style(Style::default().fg(Color::Gray)),
                     );
                     cols.push(
-                        Cell::from(created_date(event).to_string())
+                        Cell::from(event.created.to_string())
                             .style(Style::default().fg(Color::Gray)),
                     );
 
@@ -354,7 +354,7 @@ impl View for StreamsView {
                         .style(Style::default().fg(Color::Gray)),
                 );
                 cols.push(
-                    Cell::from(created_date(target_event).to_string())
+                    Cell::from(target_event.created.to_string())
                         .style(Style::default().fg(Color::Gray)),
                 );
 
@@ -592,10 +592,4 @@ async fn read_stream_next(
         }
         Ok(v) => Ok(v),
     }
-}
-
-fn created_date(event: &RecordedEvent) -> DateTime<Utc> {
-    let ticks: u64 = event.metadata.get("created").unwrap().parse().unwrap();
-    let secs = ticks / 10_000_000;
-    SystemTime::UNIX_EPOCH.add(Duration::from_secs(secs)).into()
 }
