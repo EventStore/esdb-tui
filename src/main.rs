@@ -39,7 +39,7 @@ fn main() -> Result<(), io::Error> {
     let config = log4rs::config::Config::builder()
         .appender(Appender::builder().build("file", Box::new(file)))
         .logger(Logger::builder().build("esdb", LevelFilter::Debug))
-        .build(Root::builder().appender("file").build(LevelFilter::Error))
+        .build(Root::builder().appender("file").build(LevelFilter::Warn))
         .unwrap();
 
     let _ = log4rs::init_config(config).unwrap();

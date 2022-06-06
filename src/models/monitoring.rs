@@ -1,4 +1,4 @@
-use eventstore::operations::{MemberInfo, VNodeState};
+use eventstore::operations::{MemberInfo, Statistics, VNodeState};
 use uuid::Uuid;
 
 pub struct Leader {
@@ -7,12 +7,15 @@ pub struct Leader {
     writer_checkpoint: i64,
 }
 
+const CPU_USAGE_LIMIT: usize = 20;
+
 #[derive(Default)]
 pub struct Monitoring {
     increment: usize,
     pub last_epoch_number: Option<i64>,
     pub last_writer_checkpoint: Option<i64>,
     pub writer_checkpoints: Vec<(f64, f64)>,
+    pub cpu_load: Vec<(f64, f64)>,
     pub leader: Option<Leader>,
     pub out_of_sync_cluster_counter: usize,
     pub truncation_counter: usize,
@@ -21,10 +24,8 @@ pub struct Monitoring {
 }
 
 impl Monitoring {
-    pub fn update(&mut self, gossip: Vec<MemberInfo>) {
-        // if self.writer_checkpoints.len() > 10 {
-        //     self.writer_checkpoints.remove(0);
-        // }
+    pub fn update(&mut self, stats: Statistics, gossip: Vec<MemberInfo>) {
+        self.cpu_load.push((self.increment as f64, stats.proc.cpu));
 
         if let Some(leader) = find_leader(&gossip) {
             self.leader = Some(Leader {
@@ -64,6 +65,10 @@ impl Monitoring {
         }
 
         self.increment += 2;
+
+        if self.cpu_load.len() >= CPU_USAGE_LIMIT {
+            self.cpu_load.remove(0);
+        }
     }
 
     pub fn writer_checkpoint_value_bounds(&self) -> [f64; 2] {
@@ -84,11 +89,11 @@ impl Monitoring {
     }
 
     pub fn time_bounds(&self) -> [usize; 2] {
-        if self.increment <= 20 {
-            return [0usize, 20usize];
+        if self.increment <= CPU_USAGE_LIMIT {
+            return [0usize, CPU_USAGE_LIMIT];
         }
 
-        let low = self.increment - 20;
+        let low = self.increment - CPU_USAGE_LIMIT;
         let high = self.increment;
 
         [low, high]
