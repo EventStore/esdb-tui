@@ -45,6 +45,13 @@ impl MonitoringView {
             .map(|v| v.to_string())
             .unwrap_or_else(|| "N/A".to_string());
 
+        let esdb_version = format!(
+            "v{}.{}.{}",
+            self.model.server_version.major(),
+            self.model.server_version.minor(),
+            self.model.server_version.patch()
+        );
+
         let values = vec![
             ("Epoch number", epoch_num_label),
             ("Writer checkpoint", writer_chk_label),
@@ -53,6 +60,12 @@ impl MonitoringView {
                 "Out of syncs",
                 self.model.out_of_sync_cluster_counter.to_string(),
             ),
+            (
+                "Unresponsive nodes",
+                self.model.unresponsive_nodes.to_string(),
+            ),
+            ("Free memory", format!("{:.2} GB", self.model.free_mem)),
+            ("Version", esdb_version),
         ];
 
         let max_chars = values
@@ -142,10 +155,76 @@ impl MonitoringView {
 
         // frame.render_widget(legend, rects[1]);
     }
+
+    fn draw_drive_metrics(&mut self, frame: &mut Frame<B>, area: Rect) {
+        if let Some(drive) = self.model.drive.as_ref() {
+            let sections = Layout::default()
+                .constraints(
+                    [
+                        Constraint::Percentage(60),
+                        Constraint::Percentage(10),
+                        Constraint::Percentage(30),
+                    ]
+                    .as_ref(),
+                )
+                .direction(Direction::Horizontal)
+                .margin(2)
+                .split(area);
+
+            let total = drive.stats.total_bytes as f64 / 1_073_741_824f64;
+            let available = drive.stats.available_bytes as f64 / 1_073_741_824f64;
+            let used = drive.stats.used_bytes as f64 / 1_073_741_824f64;
+            let values = vec![
+                ("Directory", drive.path.clone()),
+                ("Total", format!("{:.2} GB", total)),
+                ("Available", format!("{:.2} GB", available)),
+                ("Used", format!("{:.2} GB ({})", used, drive.stats.usage)),
+            ];
+
+            let mut spans = Vec::new();
+
+            let max_chars = values
+                .iter()
+                .fold(0usize, |acc, (key, _)| acc.max(key.chars().count()));
+
+            for (key, value) in values {
+                let mut key = key.to_string();
+
+                for _ in 0..max_chars - key.chars().count() {
+                    key.push(' ');
+                }
+
+                key.push_str(": ");
+
+                spans.push(Spans(vec![Span::raw(key), Span::raw(value)]));
+            }
+            let paragraph = Paragraph::new(spans)
+                .block(
+                    Block::default()
+                        .borders(Borders::TOP)
+                        .title("Drive metrics")
+                        .title_alignment(Alignment::Center),
+                )
+                .alignment(Alignment::Left);
+
+            frame.render_widget(paragraph, sections[2]);
+        }
+    }
 }
 
 impl View for MonitoringView {
     fn load(&mut self, env: &Env) -> eventstore::Result<()> {
+        let client = env.op_client.clone();
+
+        self.model.server_version = env
+            .handle
+            .block_on(async move {
+                let info = client.server_version().await?;
+
+                Ok(info.map(|i| i.version()))
+            })?
+            .unwrap_or_default();
+
         self.refresh(env)
     }
 
@@ -188,9 +267,9 @@ impl View for MonitoringView {
         let top_sections = Layout::default()
             .constraints(
                 [
-                    Constraint::Percentage(70),
+                    Constraint::Percentage(60),
                     Constraint::Percentage(10),
-                    Constraint::Percentage(20),
+                    Constraint::Percentage(30),
                 ]
                 .as_ref(),
             )
@@ -200,6 +279,7 @@ impl View for MonitoringView {
 
         self.draw_env_metrics(frame, top_sections[0]);
         self.draw_key_metrics(frame, top_sections[2]);
+        self.draw_drive_metrics(frame, vert_rects[1]);
 
         // let mut datasets = Vec::<Dataset>::new();
         //

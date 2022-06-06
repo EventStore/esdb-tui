@@ -1,4 +1,4 @@
-use eventstore::operations::{MemberInfo, Statistics, VNodeState};
+use eventstore::operations::{Drive, MemberInfo, ServerVersion, Statistics, VNodeState};
 use uuid::Uuid;
 
 pub struct Leader {
@@ -21,11 +21,18 @@ pub struct Monitoring {
     pub truncation_counter: usize,
     pub elections: usize,
     pub no_leader_counter: usize,
+    pub free_mem: f64,
+    pub unresponsive_nodes: usize,
+    pub drive: Option<Drive>,
+    pub server_version: ServerVersion,
 }
 
 impl Monitoring {
     pub fn update(&mut self, stats: Statistics, gossip: Vec<MemberInfo>) {
         self.cpu_load.push((self.increment as f64, stats.proc.cpu));
+        self.free_mem = stats.sys.free_mem as f64 / 1_073_741_824f64;
+        self.unresponsive_nodes = gossip.iter().filter(|m| !m.is_alive).count();
+        self.drive = stats.sys.drive;
 
         if let Some(leader) = find_leader(&gossip) {
             self.leader = Some(Leader {
