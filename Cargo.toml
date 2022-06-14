@@ -9,7 +9,8 @@ edition = "2021"
 tui = "0.18"
 crossterm = "*"
 #eventstore = "2.1"
-eventstore = { git = "https://github.com/EventStore/EventStoreDB-Client-Rust.git", branch = "http-stats" }
+eventstore = { git = "https://github.com/EventStore/EventStoreDB-Client-Rust.git", branch = "new-stats-parsing" }
+eventstore-extras = { git = "https://github.com/EventStore/EventStoreDB-Client-Rust.git", branch = "new-stats-parsing" }
 structopt = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "time", "sync"] }
 futures = "*"
@@ -19,4 +20,4 @@ log4rs = { version = "*", features = ["file_appender"] }
 chrono = "*"
 serde = "*"
 serde_json = "*"
-uuid = { version = "*", features = ["v4"]}
+uuid = { version = "*", features = ["v4"] }

@@ -1,4 +1,5 @@
-use eventstore::operations::{Drive, MemberInfo, ServerVersion, Statistics, VNodeState};
+use eventstore::operations::{MemberInfo, ServerVersion, VNodeState};
+use eventstore_extras::stats::{Drive, Statistics};
 use uuid::Uuid;
 
 pub struct Leader {

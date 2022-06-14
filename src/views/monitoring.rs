@@ -1,6 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use eventstore::operations::{Stats, StatsOptions};
+use eventstore_extras::stats::StatisticsExt;
 use tokio::sync::{Mutex, RwLock};
 use tui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
@@ -242,7 +243,7 @@ impl View for MonitoringView {
                 *stats_ref = Some(client.stats(&options).await?);
             }
 
-            let stats = stats_ref.as_mut().unwrap().next_statistics().await?;
+            let stats = stats_ref.as_mut().unwrap().next().await?.parse_statistics()?;
 
             Ok((members, stats))
         })?;

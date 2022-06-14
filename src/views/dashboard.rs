@@ -1,6 +1,7 @@
 use crate::views::{Env, Request, View, ViewCtx, B};
 use crossterm::event::KeyCode;
-use eventstore::operations::{Statistics, Stats};
+use eventstore::operations::Stats;
+use eventstore_extras::stats::{Statistics, StatisticsExt};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
@@ -56,7 +57,7 @@ impl View for DashboardView {
                 *state = Some(client.stats(&options).await?);
             }
 
-            state.as_mut().unwrap().next_statistics().await
+            state.as_mut().unwrap().next().await?.parse_statistics()
         })?;
 
         Ok(())

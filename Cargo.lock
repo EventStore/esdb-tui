@@ -232,6 +232,7 @@ dependencies = [
  "chrono",
  "crossterm",
  "eventstore",
+ "eventstore-extras",
  "futures",
  "itertools",
  "log",
@@ -247,7 +248,7 @@ dependencies = [
 [[package]]
 name = "eventstore"
 version = "2.1.1"
-source = "git+https://github.com/EventStore/EventStoreDB-Client-Rust.git?branch=http-stats#50a028c66895fc65c145cf4d440035638ae8b23e"
+source = "git+https://github.com/EventStore/EventStoreDB-Client-Rust.git?branch=new-stats-parsing#ac1a8ded13c68e1426e3d0313456ddcc51155d27"
 dependencies = [
  "async-stream",
  "base64",
@@ -275,6 +276,16 @@ dependencies = [
  "urlencoding",
  "uuid",
  "webpki 0.21.4",
+]
+
+[[package]]
+name = "eventstore-extras"
+version = "0.1.0"
+source = "git+https://github.com/EventStore/EventStoreDB-Client-Rust.git?branch=new-stats-parsing#ac1a8ded13c68e1426e3d0313456ddcc51155d27"
+dependencies = [
+ "chrono",
+ "eventstore",
+ "log",
 ]
 
 [[package]]
