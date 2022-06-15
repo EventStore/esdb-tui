@@ -172,6 +172,75 @@ impl MonitoringView {
                 .margin(2)
                 .split(area);
 
+            let bytes_written_bounds = self.model.bytes_written_value_bounds();
+            let bytes_written_diff = (bytes_written_bounds[1] - bytes_written_bounds[0]).round();
+
+            let mut incr = 10;
+            let scale = loop {
+                if (bytes_written_diff - incr as f64) < 0f64 {
+                    break (incr / 2) as f64;
+                }
+
+                incr *= 10;
+            };
+
+            let min_bound = if bytes_written_bounds[0] - scale < 0.0 {
+                0f64
+            } else {
+                bytes_written_bounds[0] - scale
+            };
+
+            let max_bound = if bytes_written_bounds[0] - scale < 0.0 {
+                bytes_written_bounds[1]
+            } else {
+                bytes_written_bounds[1] + scale
+            };
+
+            let bytes_written_bounds = [min_bound, max_bound];
+
+            let mut datasets = Vec::new();
+            datasets.push(
+                Dataset::default()
+                    .data(self.model.bytes_written.as_ref())
+                    .marker(Marker::Dot)
+                    .graph_type(GraphType::Line)
+                    .style(Style::default().fg(Color::Green)),
+            );
+
+            let time_bounds = self.model.time_bounds();
+            let time_labels = vec![
+                Span::raw(time_bounds[0].to_string()),
+                Span::raw(time_bounds[1].to_string()),
+            ];
+
+            let chart = Chart::new(datasets)
+                .block(
+                    Block::default()
+                        .title("Bytes written")
+                        .title_alignment(Alignment::Right)
+                        .borders(Borders::NONE),
+                )
+                .style(Style::default().bg(Color::DarkGray))
+                .x_axis(
+                    Axis::default()
+                        .title("Time (secs)")
+                        .style(Style::default().fg(Color::White))
+                        .labels(time_labels)
+                        .bounds(self.model.time_period()),
+                )
+                .y_axis(
+                    Axis::default()
+                        .title("Value")
+                        .style(Style::default().fg(Color::White))
+                        .labels(vec![
+                            Span::raw(format!("{:.2}", bytes_written_bounds[0])),
+                            Span::raw(format!("{:.2}", bytes_written_bounds[1])),
+                        ])
+                        .bounds(bytes_written_bounds),
+                );
+
+            frame.render_widget(chart, sections[0]);
+
             let total = drive.stats.total_bytes as f64 / 1_073_741_824f64;
             let available = drive.stats.available_bytes as f64 / 1_073_741_824f64;
             let used = drive.stats.used_bytes as f64 / 1_073_741_824f64;
@@ -243,7 +312,12 @@ impl View for MonitoringView {
                 *stats_ref = Some(client.stats(&options).await?);
             }
 
-            let stats = stats_ref.as_mut().unwrap().next().await?.parse_statistics()?;
+            let stats = stats_ref
+                .as_mut()
+                .unwrap()
+                .next()
+                .await?
+                .parse_statistics()?;
 
             Ok((members, stats))
         })?;

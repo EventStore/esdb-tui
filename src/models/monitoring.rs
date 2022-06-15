@@ -8,7 +8,7 @@ pub struct Leader {
     writer_checkpoint: i64,
 }
 
-const CPU_USAGE_LIMIT: usize = 20;
+const GRAPH_TIME_LIMIT: usize = 20;
 
 #[derive(Default)]
 pub struct Monitoring {
@@ -17,6 +17,7 @@ pub struct Monitoring {
     pub last_writer_checkpoint: Option<i64>,
     pub writer_checkpoints: Vec<(f64, f64)>,
     pub cpu_load: Vec<(f64, f64)>,
+    pub bytes_written: Vec<(f64, f64)>,
     pub leader: Option<Leader>,
     pub out_of_sync_cluster_counter: usize,
     pub truncation_counter: usize,
@@ -26,6 +27,7 @@ pub struct Monitoring {
     pub unresponsive_nodes: usize,
     pub drive: Option<Drive>,
     pub server_version: ServerVersion,
+    pub last_bytes_written: Option<i64>,
 }
 
 impl Monitoring {
@@ -34,6 +36,19 @@ impl Monitoring {
         self.free_mem = stats.sys.free_mem as f64 / 1_073_741_824f64;
         self.unresponsive_nodes = gossip.iter().filter(|m| !m.is_alive).count();
         self.drive = stats.sys.drive;
+
+        if let Some(last_bytes_written) = self.last_bytes_written.as_mut() {
+            let diff = stats.proc.disk_io.written_bytes - *last_bytes_written;
+            self.bytes_written.push((
+                self.increment as f64,
+                diff as f64 / (self.increment + 2 - self.increment) as f64,
+            ));
+
+            *last_bytes_written = stats.proc.disk_io.written_bytes;
+        } else {
+            self.bytes_written.push((self.increment as f64, 0f64));
+            self.last_bytes_written = Some(stats.proc.disk_io.written_bytes);
+        }
 
         if let Some(leader) = find_leader(&gossip) {
             self.leader = Some(Leader {
@@ -66,24 +81,26 @@ impl Monitoring {
 
             self.last_writer_checkpoint = Some(leader.writer_checkpoint);
             self.last_epoch_number = Some(leader.epoch_number);
-            // self.writer_checkpoints
-            //     .push((self.increment as f64, leader.writer_checkpoint as f64));
         } else {
             self.no_leader_counter += 1;
         }
 
         self.increment += 2;
 
-        if self.cpu_load.len() >= CPU_USAGE_LIMIT {
+        if self.cpu_load.len() >= GRAPH_TIME_LIMIT {
             self.cpu_load.remove(0);
+        }
+
+        if self.bytes_written.len() >= GRAPH_TIME_LIMIT {
+            self.bytes_written.remove(0);
         }
     }
 
-    pub fn writer_checkpoint_value_bounds(&self) -> [f64; 2] {
+    pub fn bytes_written_value_bounds(&self) -> [f64; 2] {
         let mut low = f64::MAX;
         let mut high = f64::MIN;
 
-        for (_, value) in self.writer_checkpoints.iter() {
+        for (_, value) in self.bytes_written.iter() {
             if *value < low {
                 low = *value;
             }
@@ -97,11 +114,11 @@ impl Monitoring {
     }
 
     pub fn time_bounds(&self) -> [usize; 2] {
-        if self.increment <= CPU_USAGE_LIMIT {
-            return [0usize, CPU_USAGE_LIMIT];
+        if self.increment <= GRAPH_TIME_LIMIT {
+            return [0usize, GRAPH_TIME_LIMIT];
         }
 
-        let low = self.increment - CPU_USAGE_LIMIT;
+        let low = self.increment - GRAPH_TIME_LIMIT;
         let high = self.increment;
 
         [low, high]
