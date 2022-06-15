@@ -190,11 +190,15 @@ impl MonitoringView {
                 bytes_written_bounds[0] - scale
             };
 
-            let max_bound = if bytes_written_bounds[0] - scale < 0.0 {
+            let mut max_bound = if bytes_written_bounds[0] - scale < 0.0 {
                 bytes_written_bounds[1]
             } else {
                 bytes_written_bounds[1] + scale
             };
+
+            if max_bound.round() == 0f64 {
+                max_bound = 500f64;
+            }
 
             let bytes_written_bounds = [min_bound, max_bound];
 
