@@ -53,6 +53,12 @@ impl MonitoringView {
             self.model.server_version.patch()
         );
 
+        let cpu_usage = if let Some((_, cpu_usage)) = self.model.cpu_load.last() {
+            *cpu_usage
+        } else {
+            0f64
+        };
+
         let values = vec![
             ("Epoch number", epoch_num_label),
             ("Writer checkpoint", writer_chk_label),
@@ -65,6 +71,7 @@ impl MonitoringView {
                 "Unresponsive nodes",
                 self.model.unresponsive_nodes.to_string(),
             ),
+            ("CPU Usage", format!("{:.2}%", cpu_usage)),
             ("Free memory", format!("{:.2} GB", self.model.free_mem)),
             ("Version", esdb_version),
         ];
@@ -248,11 +255,50 @@ impl MonitoringView {
             let total = drive.stats.total_bytes as f64 / 1_073_741_824f64;
             let available = drive.stats.available_bytes as f64 / 1_073_741_824f64;
             let used = drive.stats.used_bytes as f64 / 1_073_741_824f64;
+            let mut bytes_written = if let Some((_, bytes_written)) = self.model.bytes_written.last() {
+                *bytes_written
+            } else {
+                0f64
+            };
+
+            let mut steps = 1;
+
+            loop {
+                let rest = bytes_written / steps as f64;
+
+                if rest > 1f64 {
+                    bytes_written = rest;
+                    steps *= 1_024;
+                    continue;
+                }
+
+                break;
+            };
+
+            let mut unit = 0;
+            loop {
+                if steps as f64 / 1_024f64 <= 1f64 {
+                    break;
+                }
+
+                unit += 1;
+                steps /= 1_024;
+            }
+
+            let unit = match unit {
+                0 => "B",
+                1 => "kB",
+                2 => "MB",
+                3 => "GB",
+                _ => unreachable!(),
+            };
+
             let values = vec![
                 ("Directory", drive.path.clone()),
                 ("Total", format!("{:.2} GB", total)),
                 ("Available", format!("{:.2} GB", available)),
                 ("Used", format!("{:.2} GB ({})", used, drive.stats.usage)),
+                ("Bytes written", format!("{:.2} {}/s", bytes_written, unit)),
             ];
 
             let mut spans = Vec::new();
