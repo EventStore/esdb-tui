@@ -226,7 +226,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "esdb"
+name = "esdb-tui"
 version = "0.1.0"
 dependencies = [
  "chrono",

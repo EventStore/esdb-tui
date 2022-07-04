@@ -38,7 +38,7 @@ fn main() -> Result<(), io::Error> {
     let file = log4rs::append::file::FileAppender::builder().build("esdb.log")?;
     let config = log4rs::config::Config::builder()
         .appender(Appender::builder().build("file", Box::new(file)))
-        .logger(Logger::builder().build("esdb", LevelFilter::Debug))
+        .logger(Logger::builder().build("esdb-tui", LevelFilter::Debug))
         .build(Root::builder().appender("file").build(LevelFilter::Warn))
         .unwrap();
 
