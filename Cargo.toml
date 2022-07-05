@@ -1,7 +1,11 @@
 [package]
 name = "esdb-tui"
 version = "0.1.0"
+authors = ["Yorick Laupa <yo.eight@gmail.com>"]
 edition = "2021"
+description = "An EventStoreDB administration tool"
+license = "BSD3"
+readme = "README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
