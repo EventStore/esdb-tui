@@ -47,7 +47,7 @@ switch($Runner)
   ubuntu-18.04
   {
     cargo install cargo-deb
-    cargo deb --manifest-path=cli/Cargo.toml --output=output
+    cargo deb --manifest-path=Cargo.toml --output=output
     $artifactName = ls output
     $finalName = "EventStoreDB.TUI-$Version-1.${Runner}_amd64.deb"
     Push-Location "output"
@@ -59,7 +59,7 @@ switch($Runner)
 
   windows-2019
   {
-    cargo build --bin esc --release
+    cargo build --bin esdb-tui --release
     Move-Item -Path (Join-Path "target" (Join-Path "release" "esdb-tui.exe")) (Join-Path "output" "esdb-tui.exe")
     Push-Location output
     $artifactName = "EventStoreDB.TUI-Windows-x64-$Version.zip"
@@ -71,7 +71,7 @@ switch($Runner)
 
   macos-10.15
   {
-    cargo build --bin esc --release
+    cargo build --bin esdb-tui --release
 
     $packageName = "EventStoreDB.TUI-OSX-$Version.pkg"
     $semVer = Get-Sem-Version $Version
