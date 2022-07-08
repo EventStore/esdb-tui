@@ -12,9 +12,8 @@ readme = "README.md"
 [dependencies]
 tui = "0.18"
 crossterm = "*"
-#eventstore = "2.1"
-eventstore = { git = "https://github.com/EventStore/EventStoreDB-Client-Rust.git", rev = "159bc6c26aa2c4959d5a8cf97606318d5a29d386" }
-eventstore-extras = { git = "https://github.com/EventStore/EventStoreDB-Client-Rust.git", rev = "159bc6c26aa2c4959d5a8cf97606318d5a29d386" }
+eventstore = { git = "https://github.com/EventStore/EventStoreDB-Client-Rust.git", branch = "fix-metric-parsing" }
+eventstore-extras = { git = "https://github.com/EventStore/EventStoreDB-Client-Rust.git", branch = "fix-metric-parsing" }
 structopt = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "time", "sync"] }
 futures = "*"
