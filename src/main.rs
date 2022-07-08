@@ -8,7 +8,9 @@ use crate::views::{Context, Request, View, B};
 use crossterm::{
     event::Event,
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{
+        disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen, SetTitle,
+    },
 };
 use eventstore::ClientSettings;
 use log::LevelFilter;
@@ -46,7 +48,7 @@ fn main() -> Result<(), io::Error> {
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, EnterAlternateScreen, SetTitle("esdb-tui"))?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
     let res = run_app(&mut terminal, args.conn_setts);
