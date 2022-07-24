@@ -248,7 +248,7 @@ dependencies = [
 [[package]]
 name = "eventstore"
 version = "2.1.1"
-source = "git+https://github.com/EventStore/EventStoreDB-Client-Rust.git?rev=159bc6c26aa2c4959d5a8cf97606318d5a29d386#159bc6c26aa2c4959d5a8cf97606318d5a29d386"
+source = "git+https://github.com/EventStore/EventStoreDB-Client-Rust.git?rev=29634c1064bc4696d878a928c6d019277950e322#29634c1064bc4696d878a928c6d019277950e322"
 dependencies = [
  "async-stream",
  "base64",
@@ -282,7 +282,7 @@ dependencies = [
 [[package]]
 name = "eventstore-extras"
 version = "0.1.0"
-source = "git+https://github.com/EventStore/EventStoreDB-Client-Rust.git?rev=159bc6c26aa2c4959d5a8cf97606318d5a29d386#159bc6c26aa2c4959d5a8cf97606318d5a29d386"
+source = "git+https://github.com/EventStore/EventStoreDB-Client-Rust.git?rev=29634c1064bc4696d878a928c6d019277950e322#29634c1064bc4696d878a928c6d019277950e322"
 dependencies = [
  "chrono",
  "eventstore",
@@ -292,7 +292,7 @@ dependencies = [
 [[package]]
 name = "eventstore-macros"
 version = "0.0.0"
-source = "git+https://github.com/EventStore/EventStoreDB-Client-Rust.git?rev=159bc6c26aa2c4959d5a8cf97606318d5a29d386#159bc6c26aa2c4959d5a8cf97606318d5a29d386"
+source = "git+https://github.com/EventStore/EventStoreDB-Client-Rust.git?rev=29634c1064bc4696d878a928c6d019277950e322#29634c1064bc4696d878a928c6d019277950e322"
 dependencies = [
  "quote",
  "syn",
